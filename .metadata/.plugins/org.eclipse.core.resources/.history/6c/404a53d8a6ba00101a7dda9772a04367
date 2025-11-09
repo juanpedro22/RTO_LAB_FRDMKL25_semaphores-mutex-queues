@@ -1,0 +1,204 @@
+/* ###################################################################
+** Filename    : os_tasks.c
+** Project     : lab3
+** Processor   : MKL25Z128VLK4
+** Component   : Events
+** Version     : Driver 01.00
+** Compiler    : GNU C Compiler
+** Date/Time   : 2025-10-26, 16:10, # CodeGen: 2
+** Abstract    :
+** This is user's event module.
+** Put your event handler code here.
+** Settings    :
+** Contents    :
+** Task1_task - void Task1_task(os_task_param_t task_init_data);
+**
+** ###################################################################*/
+/*!
+** @file os_tasks.c
+** @version 01.00
+** @brief
+** This is user's event module.
+** Put your event handler code here.
+*/         
+/*!
+** @addtogroup os_tasks_module os_tasks module documentation
+** @{
+*/         
+/* MODULE os_tasks */
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif 
+
+
+/* User includes (#include below this line is not maintained by Processor Expert) */
+
+/* Incluindo a nova Hardware Abstraction Layer (HAL) para os LEDs */
+#include "ledrgb_hal.h"
+
+/*
+** ===================================================================
+** Event       :  Task1_task (module os_tasks)
+**
+** Component   :  Task1 [OS_Task]
+*/
+/*!
+** @brief
+** RTOS task routine. The routine is generated into os_tasks.c
+** file.
+** @param
+** task_init_data  - Parameter to be passed to the
+** task when it is created.
+*/
+/* ===================================================================*/
+void Task1_task(os_task_param_t task_init_data)
+{
+  /* Escreva sua defini��o de vari�vel local aqui */
+
+  /* Definição dos estados da FSM 1 */
+  typedef enum {
+    STATE_RED_ON,
+    STATE_RED_OFF
+  } fsm1_state_t;
+
+  /* Inicialização da FSM 1 */
+  fsm1_state_t currentState = STATE_RED_ON;
+
+  /* Inicializa o hardware do LED RGB usando a HAL */
+
+  ledrgb_init();
+  
+#ifdef PEX_USE_RTOS
+  while (1) {
+#endif
+
+    
+    /* Implementa��o da M�quina de Estados Finitos (FSM) 1 */
+    switch (currentState) {
+
+      case STATE_RED_ON:
+        /* A��o do estado: Ligar LED Vermelho (Usando HAL) */
+        /* A HAL j� trata a l�gica invertida (Ativo-Baixo) */
+        ledrgb_setRedLed();
+
+        /* Esperar pelo tempo do estado (delay) */
+        OSA_TimeDelay(500); /* 500 ms */
+
+        /* Transi��o para o pr�ximo estado */
+        currentState = STATE_RED_OFF;
+        break;
+
+      case STATE_RED_OFF:
+        /* A��o do estado: Desligar LED Vermelho (Usando HAL) */
+        ledrgb_clearRedLed();
+
+        /* Esperar pelo tempo do estado (delay) */
+        OSA_TimeDelay(500); /* 500 ms */
+
+        /* Transi��o para o pr�ximo estado */
+        currentState = STATE_RED_ON;
+        break;
+
+      default:
+        /* Estado inv�lido, resetar para o estado inicial */
+        currentState = STATE_RED_ON;
+        break;
+    }
+    
+#ifdef PEX_USE_RTOS
+  }
+#endif
+}
+
+/*
+** ===================================================================
+** Event       :  Task2_task (module os_tasks)
+**
+** Component   :  Task2 [OS_Task]
+*/
+/*!
+** @brief
+** RTOS task routine. The routine is generated into os_tasks.c
+** file.
+** @param
+** task_init_data  - Parameter to be passed to the
+** task when it is created.
+*/
+/* ===================================================================*/
+void Task2_task(os_task_param_t task_init_data)
+{
+  /* Escreva sua defini��o de vari�vel local aqui */
+
+  /* Defini��o dos estados da FSM 2 */
+  typedef enum {
+    STATE_GREEN_ON,
+    STATE_GREEN_OFF
+  } fsm2_state_t;
+
+  /* Inicializa��o da FSM 2 */
+  fsm2_state_t currentState = STATE_GREEN_ON;
+
+#ifdef PEX_USE_RTOS
+  while (1) {
+#endif
+    /* Escreva seu c�digo aqui... */
+
+    /* Implementa��o da M�quina de Estados Finitos (FSM) 2 */
+    switch (currentState) {
+
+      case STATE_GREEN_ON:
+        /* A��o do estado: Ligar LED Verde (Usando HAL) */
+        ledrgb_setGreenLed();
+
+        /* Esperar pelo tempo do estado (delay) */
+        OSA_TimeDelay(300); /* 300 ms */
+
+        /* Transi��o para o pr�ximo estado */
+        currentState = STATE_GREEN_OFF;
+        break;
+
+      case STATE_GREEN_OFF:
+        /* A��o do estado: Desligar LED Verde (Usando HAL) */
+        ledrgb_clearGreenLed();
+
+        /* Esperar pelo tempo do estado (delay) */
+        OSA_TimeDelay(300); /* 300 ms */
+
+        /* Transi��o para o pr�ximo estado */
+        currentState = STATE_GREEN_ON;
+        break;
+
+      default:
+        /* Estado inv�lido, resetar para o estado inicial */
+        currentState = STATE_GREEN_ON;
+        break;
+    }
+
+#ifdef PEX_USE_RTOS
+  }
+#endif    
+}
+
+/* END os_tasks */
+
+#ifdef __cplusplus
+}  /* extern "C" */
+#endif 
+
+/*!
+** @}
+*/
+/*
+** ###################################################################
+**
+** This file was created by Processor Expert 10.5 [05.21]
+** for the Freescale Kinetis series of microcontrollers.
+**
+** ###################################################################
+*/
+

@@ -1,0 +1,93 @@
+/* ###################################################################
+**     Filename    : main.c
+**     Project     : lab4
+**     Processor   : MKL25Z128VLK4
+**     Version     : Driver 01.01
+**     Compiler    : GNU C Compiler
+**     Date/Time   : 2025-11-06, 20:09, # CodeGen: 0
+** ###################################################################*/
+
+/*!
+** @file main.c
+** @version 01.01
+** @brief Main module.
+*/
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+#include "semphr.h"
+#include "clockMan1.h"
+#include "pin_init.h"
+#include "osa1.h"
+#include "free_rtos.h"
+#include "gpio1.h"
+#include "Task1.h"
+#include "Task2.h"
+#include "DbgCs1.h"
+#include "fsl_debug_console.h"
+/* #include "fsl_clock.h"  -- removido porque não está presente no include path */
+#if CPU_INIT_CONFIG
+  #include "Init_Config.h"
+#endif
+
+/* User includes (#include below this line is not maintained by Processor Expert) */
+
+/* Definição do semáforo global (visível em os_tasks.c via 'extern') */
+SemaphoreHandle_t ledSema = NULL;
+
+/*lint -save  -e970 Disable MISRA rule (6.3) checking. */
+
+int main(void)
+/*lint -restore Enable MISRA rule (6.3) checking. */
+{
+  /* Write your local variable definition here */
+
+  /*** Processor Expert internal initialization. DON'T REMOVE THIS CODE!!! ***/
+  PE_low_level_init();
+  /*** End of Processor Expert internal initialization.                    ***/
+
+  /* ---------- Inicializa DbgConsole (apenas depois de PE_low_level_init()) ---------- */
+  /* Usamos proteção para evitar erro de compilação se o projeto não definir
+     as macros BOARD_DEBUG_UART_BASEADDR, etc. */
+#ifdef BOARD_DEBUG_UART_BASEADDR
+  (void)DbgConsole_Init(BOARD_DEBUG_UART_BASEADDR,
+                       BOARD_DEBUG_UART_BAUDRATE,
+                       DEBUG_CONSOLE_DEVICE_TYPE_UART,
+                       BOARD_DEBUG_UART_CLK_FREQ);
+#else
+  /* Se quiser console mas não tiver BOARD_DEBUG_UART_*, inicialize a UART
+     manualmente usando as funções geradas pelo Processor Expert (ex: UART0_Init)
+     ou implemente um envio via UART com as APIs disponíveis no seu projeto. */
+#endif
+
+  /* ---------- Cria semáforo binário (antes do RTOS iniciar) ---------- */
+  ledSema = xSemaphoreCreateBinary();
+  if (ledSema == NULL) {
+      /* falha alocar semáforo: situação crítica */
+      for(;;) { /* trap for debug */ }
+  }
+
+  /* Em algumas versões do FreeRTOS xSemaphoreCreateBinary() retorna o semáforo
+     já "dado". Se quiser garantir inicial = 0, consuma-o here (descomente): */
+#if 0
+  (void)xSemaphoreTake(ledSema, (TickType_t)0);
+#endif
+
+  /* Write your code here */
+  /* For example: for(;;) { } */
+
+  /*** RTOS startup code. Macro PEX_RTOS_START is defined by the RTOS component. DON'T MODIFY THIS CODE!!! ***/
+  #ifdef PEX_RTOS_START
+    PEX_RTOS_START();                  /* Startup of the selected RTOS. */
+  #endif
+  /*** End of RTOS startup code.  ***/
+
+  /*** Processor Expert end of main routine. DON'T MODIFY THIS CODE!!! ***/
+  for(;;) {
+    /* should not get here if RTOS is running */
+  }
+  /*** Processor Expert end of main routine. DON'T WRITE CODE BELOW!!! ***/
+} /*** End of main routine. DO NOT MODIFY THIS TEXT!!! ***/
+
+/* END main */

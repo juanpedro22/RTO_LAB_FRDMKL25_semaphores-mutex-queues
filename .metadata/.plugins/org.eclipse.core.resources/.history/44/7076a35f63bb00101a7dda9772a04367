@@ -1,0 +1,108 @@
+/* os_tasks.c - versão com semáforo criado em main.c
+   Replace entire file with this content.
+*/
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+
+/* FreeRTOS */
+#include "FreeRTOS.h"
+#include "semphr.h"
+#include "task.h"
+
+/* HAL for LEDs */
+#include "ledrgb_hal.h"
+
+/* Semáforo declarado em main.c (definido/ criado lá) */
+extern SemaphoreHandle_t ledSema;
+
+/*
+ * Task1: piscagem do LED vermelho e posta semáforo para Task2.
+ */
+void Task1_task(os_task_param_t task_init_data)
+{
+    typedef enum {
+        STATE_RED_ON,
+        STATE_RED_OFF
+    } fsm1_state_t;
+
+    fsm1_state_t currentState = STATE_RED_ON;
+
+    /* Inicializa hardware (idempotente) */
+    ledrgb_init();
+
+#ifdef PEX_USE_RTOS
+    while (1) {
+#endif
+        switch (currentState) {
+            case STATE_RED_ON:
+                ledrgb_setRedLed();
+                /* Delay usando FreeRTOS ticks */
+                vTaskDelay(pdMS_TO_TICKS(500));
+
+                /* Transição e sinalização */
+                currentState = STATE_RED_OFF;
+                (void)xSemaphoreGive(ledSema); /* signal Task2 */
+                break;
+
+            case STATE_RED_OFF:
+                ledrgb_clearRedLed();
+                vTaskDelay(pdMS_TO_TICKS(500));
+                currentState = STATE_RED_ON;
+                break;
+
+            default:
+                currentState = STATE_RED_ON;
+                break;
+        }
+#ifdef PEX_USE_RTOS
+    }
+#endif
+}
+
+/*
+ * Task2: espera semáforo e pisca LED verde uma vez por post recebido.
+ */
+void Task2_task(os_task_param_t task_init_data)
+{
+    typedef enum {
+        STATE_GREEN_ON,
+        STATE_GREEN_OFF
+    } fsm2_state_t;
+
+    fsm2_state_t currentState = STATE_GREEN_ON;
+
+    /* Inicializa hardware (idempotente) */
+    ledrgb_init();
+
+#ifdef PEX_USE_RTOS
+    while (1) {
+#endif
+        /* Bloqueia até receber o semáforo */
+        if (xSemaphoreTake(ledSema, portMAX_DELAY) == pdTRUE) {
+            switch (currentState) {
+                case STATE_GREEN_ON:
+                    ledrgb_setGreenLed();
+                    vTaskDelay(pdMS_TO_TICKS(300));
+                    currentState = STATE_GREEN_OFF;
+                    break;
+
+                case STATE_GREEN_OFF:
+                    ledrgb_clearGreenLed();
+                    vTaskDelay(pdMS_TO_TICKS(300));
+                    currentState = STATE_GREEN_ON;
+                    break;
+
+                default:
+                    currentState = STATE_GREEN_ON;
+                    break;
+            }
+            /* Não repostamos aqui; Task1 controla os posts */
+        } else {
+            /* Não esperado quando usando portMAX_DELAY */
+        }
+#ifdef PEX_USE_RTOS
+    }
+#endif
+}

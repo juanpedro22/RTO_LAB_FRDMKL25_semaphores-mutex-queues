@@ -1,0 +1,97 @@
+/* ###################################################################
+** Filename    : os_tasks.c
+** Project     : lab4
+** Processor   : MKL25Z128VLK4
+** Component   : Events
+** Version     : Driver 01.00
+** Compiler    : GNU C Compiler
+** Date/Time   : 2025-10-26, 16:10
+** ###################################################################*/
+
+/*!
+** @file os_tasks.c
+** @version 01.00
+** @brief
+** This is user's event module.
+*/
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+
+/* FreeRTOS semaphore API (usa os rtos que já está no projeto) */
+#include "FreeRTOS.h"
+#include "semphr.h"
+
+/* Incluindo a nova Hardware Abstraction Layer (HAL) para os LEDs */
+#include "ledrgb_hal.h"
+
+/* -------------------------------------------------------------------
+ * Semáforo usado para sincronizar Task1 <-> Task2
+ * Criado "lazy" (inicialização protegida) para evitar dependência de
+ * ordem de criação das tasks. Visível apenas neste módulo (static).
+ * -----------------------------------------------------------------*/
+static SemaphoreHandle_t ledSema = NULL;
+
+/* Função auxiliar: inicializa o semáforo apenas uma vez (thread-safe) */
+static void ledSema_init(void)
+{
+  taskENTER_CRITICAL();
+  if (ledSema == NULL) {
+    /* Cria semáforo binário */
+    ledSema = xSemaphoreCreateBinary();
+
+    /* Se a API criar o semáforo já "dado" por padrão, consumimos para
+       garantir que o estado inicial seja bloqueado (contagem == 0). */
+    if (ledSema != NULL) {
+      /* tenta tirar semáforo com timeout 0 (se estiver disponível, consumimos) */
+      (void)xSemaphoreTake(ledSema, (TickType_t)0);
+    }
+  }
+  taskEXIT_CRITICAL();
+
+  /* Se falhou na criação, trave aqui para facilitar debug (alternativa: log) */
+  if (ledSema == NULL) {
+    /* Semáforo não alocado -> problema crítico */
+    for (;;) { /* opcional: piscar LED de erro aqui */ }
+  }
+}
+
+/*
+** ===================================================================
+** Event       :  Task1_task (module os_tasks)
+** Component   :  Task1 [OS_Task]
+** ===================================================================
+*/
+void Task1_task(os_task_param_t task_init_data)
+{
+  /* Definição dos estados da FSM 1 */
+  typedef enum {
+    STATE_RED_ON,
+    STATE_RED_OFF
+  } fsm1_state_t;
+
+  /* Inicialização da FSM 1 */
+  fsm1_state_t currentState = STATE_RED_ON;
+
+  /* Inicializa hardware do LED (idempotente idealmente) */
+  ledrgb_init();
+
+  /* Garante que o semáforo exista antes de usar */
+  ledSema_init();
+
+#ifdef PEX_USE_RTOS
+  while (1) {
+#endif
+
+    switch (currentState) {
+
+      case STATE_RED_ON:
+        /* Ação do estado: Ligar LED Vermelho (Usando HAL) */
+        /* A HAL já trata a lógica invertida (Ativo-Baixo) */
+        ledrgb_setRedLed();
+
+        /* Esperar pelo tempo do estado (delay) */
+        OSA_TimeDelay(500); /* 500 ms */
+
+        /* Transição para o pr*

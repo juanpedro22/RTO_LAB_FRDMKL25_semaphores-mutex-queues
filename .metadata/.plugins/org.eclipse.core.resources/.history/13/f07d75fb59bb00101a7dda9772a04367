@@ -1,0 +1,123 @@
+/* MODULE os_tasks */
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif 
+
+/* User includes (#include below this line is not maintained by Processor Expert) */
+#include "ledrgb_hal.h"
+
+/* ################################################################### */
+/* SELETOR DE IMPLEMENTAÇÃO E HANDLE GLOBAL */
+
+/* Descomente para usar Mutex (Parte B) */
+#define USE_MUTEX_IMPLEMENTATION
+
+#if defined(USE_MUTEX_IMPLEMENTATION)
+  #include "fsl_os_abstraction.h" // Precisamos disso para o tipo 'mutex_t'
+  extern mutex_t g_led_mutex; // 'extern' diz que ela existe em outro lugar
+#else
+  #include "fsl_os_abstraction.h" // Precisamos para 'semaphore_t'
+  extern semaphore_t g_led_semaphore;
+#endif
+/* ################################################################### */
+
+
+
+
+/*
+** ===================================================================
+** Event    :  Task1_task (module os_tasks)
+** ===================================================================
+**
+** OBJETIVO: TESTE DE DIAGNÓSTICO
+** Vamos acender cores diferentes para ver onde o código trava.
+**
+*/
+void Task1_task(os_task_param_t task_init_data)
+{
+  osa_status_t status;
+
+  /* 1. Inicializa o hardware */
+  ledrgb_init();
+
+  /* 2. SINALIZAÇÃO: ESTAMOS VIVOS.
+  ** Se o LED ficar VERDE, a Task1 começou.
+  */
+  ledrgb_setGreenLed();
+  OSA_TimeDelay(1000); // Espera 1s para vermos o verde
+
+
+  /* 3. SINALIZAÇÃO: TENTANDO CRIAR O MUTEX.
+  ** Vamos ver se a chamada OSA_MutexCreate() trava.
+  */
+  status = OSA_MutexCreate(&g_led_mutex);
+
+
+  /* 4. SINALIZAÇÃO: MUTEX CRIADO COM SUCESSO.
+  ** Se o LED ficar AZUL, a criação do Mutex funcionou.
+  ** (Se o status NÃO for OK, ele ficará Laranja = Verde + Vermelho)
+  */
+  if (status == kStatus_OSA_Success)
+  {
+      ledrgb_clearGreenLed();
+      ledrgb_setBlueLed();
+  }
+  else
+  {
+      /* Erro na criação! (Provavelmente Heap, como eu disse) */
+      ledrgb_setRedLed(); // Verde + Vermelho = Laranja
+  }
+  OSA_TimeDelay(1000); // Espera 1s para vermos o azul (ou laranja)
+
+
+  /* 5. SINALIZAÇÃO: TENTANDO TRAVAR O MUTEX.
+  ** Vamos ver se a chamada OSA_MutexLock() trava.
+  */
+  status = OSA_MutexLock(&g_led_mutex, OSA_WAIT_FOREVER);
+
+
+  /* 6. SINALIZAÇÃO: MUTEX TRAVADO COM SUCESSO.
+  ** Se o LED ficar VERMELHO, tudo funcionou.
+  */
+  if (status == kStatus_OSA_Success)
+  {
+      ledrgb_clearBlueLed();
+      ledrgb_setRedLed();
+  }
+  // Se falhar, ele ficará Azul+Vermelho = Roxo, mas não deve falhar.
+
+  /* Fim do teste, trava a tarefa aqui */
+#ifdef PEX_USE_RTOS
+  while (1) {
+       OSA_TimeDelay(5000); // Loop final
+  }
+#endif
+}
+
+/*
+** ===================================================================
+** Event    :  Task2_task (module os_tasks)
+** ===================================================================
+**
+** TAREFA 2 DESABILITADA PARA O TESTE
+**
+*/
+void Task2_task(os_task_param_t task_init_data)
+{
+  /* Não faz NADA. Apenas dorme para sempre. */
+#ifdef PEX_USE_RTOS
+  while (1) {
+      OSA_TimeDelay(50000);
+  }
+#endif
+}
+/* END os_tasks */
+
+#ifdef __cplusplus
+}  /* extern "C" */
+#endif

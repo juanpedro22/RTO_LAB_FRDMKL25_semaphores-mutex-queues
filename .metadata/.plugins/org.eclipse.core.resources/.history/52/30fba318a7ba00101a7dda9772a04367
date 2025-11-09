@@ -1,0 +1,220 @@
+/* MODULE os_tasks */
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif 
+
+/* User includes (#include below this line is not maintained by Processor Expert) */
+#include "ledrgb_hal.h"
+
+/* ###################################################################
+** SELETOR DE IMPLEMENTAÇÃO (Item 2.1, Etapa 2 e 3)
+** ###################################################################
+**
+** Descomente a linha abaixo para compilar a Parte B (Mutex).
+** Deixe-a comentada para compilar a Parte A (Semáforo).
+**
+*/
+/* #define USE_MUTEX_IMPLEMENTATION */
+/* ################################################################### */
+
+
+/* ** Variáveis Globais de Sincronização
+** O pré-processador irá escolher qual variável criar.
+*/
+#if defined(USE_MUTEX_IMPLEMENTATION)
+  /* Parte B: Mutex */
+  osa_mutex_t g_led_mutex;
+#else
+  /* Parte A: Semáforo (Default) */
+  osa_semaphore_t g_led_semaphore;
+#endif
+
+
+/*
+** ===================================================================
+** Event    :  Task1_task (module os_tasks)
+** ===================================================================
+*/
+void Task1_task(os_task_param_t task_init_data)
+{
+  /* Definição dos estados da FSM 1 (com sincronização) */
+  typedef enum {
+    STATE_WAIT_FOR_RESOURCE,
+    STATE_CRITICAL_SECTION_ON,
+    STATE_RELEASE_AND_WAIT_OFF
+  } fsm1_state_t;
+
+  /* Inicialização da FSM 1 */
+  fsm1_state_t currentState = STATE_WAIT_FOR_RESOURCE;
+
+  /* Inicializa o hardware do LED RGB (apenas uma vez) */
+  ledrgb_init();
+
+  /* ** Cria o objeto de Sincronização (apenas uma vez)
+  ** A Task1 será responsável por criar o objeto.
+  */
+#if defined(USE_MUTEX_IMPLEMENTATION)
+  /* Parte B: Cria o Mutex */
+  OSA_MutexCreate(&g_led_mutex);
+#else
+  /* Parte A: Cria o Semáforo Binário (valor inicial 1 = "disponível") */
+  OSA_SemaCreate(&g_led_semaphore, 1);
+#endif
+  
+#ifdef PEX_USE_RTOS
+  while (1) {
+#endif
+
+    /* Implementação da Máquina de Estados Finitos (FSM) 1 */
+    switch (currentState) {
+
+      case STATE_WAIT_FOR_RESOURCE:
+        /* 1. Tentar "pegar" o recurso.
+        ** A tarefa ficará BLOQUEADA aqui até conseguir.
+        */
+#if defined(USE_MUTEX_IMPLEMENTATION)
+        OSA_MutexLock(&g_led_mutex, OSA_WAIT_FOREVER);
+#else
+        OSA_SemaWait(&g_led_semaphore, OSA_WAIT_FOREVER);
+#endif
+        /* Transição: Recurso adquirido! */
+        currentState = STATE_CRITICAL_SECTION_ON;
+        break;
+
+      case STATE_CRITICAL_SECTION_ON:
+        /* ** =================== INÍCIO DA SEÇÃO CRÍTICA ===================
+        ** Agora temos controle exclusivo do LED
+        */
+
+        /* 2. Definir a cor (garantindo que as outras estão apagadas) */
+        ledrgb_setRedLed();
+        ledrgb_clearGreenLed();
+        // ledrgb_clearBlueLed(); // Boa prática
+
+        /* 3. Manter o LED aceso (e manter a trava) */
+        OSA_TimeDelay(500); /* 500 ms */
+
+        /* Transição: Hora de desligar e liberar */
+        currentState = STATE_RELEASE_AND_WAIT_OFF;
+        break;
+
+      case STATE_RELEASE_AND_WAIT_OFF:
+        /* 4. Apagar o LED (ainda dentro da seção crítica) */
+        ledrgb_clearRedLed();
+
+        /* 5. "Devolver" o recurso para a outra tarefa. */
+#if defined(USE_MUTEX_IMPLEMENTATION)
+        OSA_MutexUnlock(&g_led_mutex);
+#else
+        OSA_SemaPost(&g_led_semaphore);
+#endif
+        /* ** =================== FIM DA SEÇÃO CRÍTICA ====================
+        */
+
+        /* 6. Esperar o período "OFF" (fora da seção crítica) */
+        OSA_TimeDelay(500); /* 500 ms */
+
+        /* Transição: Voltar ao início para tentar de novo */
+        currentState = STATE_WAIT_FOR_RESOURCE;
+        break;
+
+      default:
+        currentState = STATE_WAIT_FOR_RESOURCE;
+        break;
+    }
+    
+#ifdef PEX_USE_RTOS
+  }
+#endif
+}
+
+/*
+** ===================================================================
+** Event    :  Task2_task (module os_tasks)
+** ===================================================================
+*/
+void Task2_task(os_task_param_t task_init_data)
+{
+  /* Definição dos estados da FSM 2 (com sincronização) */
+  typedef enum {
+    STATE_WAIT_FOR_RESOURCE,
+    STATE_CRITICAL_SECTION_ON,
+    STATE_RELEASE_AND_WAIT_OFF
+  } fsm2_state_t;
+
+  /* Inicialização da FSM 2 */
+  fsm2_state_t currentState = STATE_WAIT_FOR_RESOURCE;
+
+#ifdef PEX_USE_RTOS
+  while (1) {
+#endif
+
+    /* Implementação da Máquina de Estados Finitos (FSM) 2 */
+    switch (currentState) {
+
+      case STATE_WAIT_FOR_RESOURCE:
+        /* 1. Tentar "pegar" o recurso. */
+#if defined(USE_MUTEX_IMPLEMENTATION)
+        OSA_MutexLock(&g_led_mutex, OSA_WAIT_FOREVER);
+#else
+        OSA_SemaWait(&g_led_semaphore, OSA_WAIT_FOREVER);
+#endif
+        /* Transição: Recurso adquirido! */
+        currentState = STATE_CRITICAL_SECTION_ON;
+        break;
+
+      case STATE_CRITICAL_SECTION_ON:
+        /* ** =================== INÍCIO DA SEÇÃO CRÍTICA ===================
+        */
+
+        /* 2. Definir a cor */
+        ledrgb_setGreenLed();
+        ledrgb_clearRedLed();
+        // ledrgb_clearBlueLed(); // Boa prática
+
+        /* 3. Manter o LED aceso (e manter a trava) */
+        OSA_TimeDelay(300); /* 300 ms */
+
+        /* Transição: Hora de desligar e liberar */
+        currentState = STATE_RELEASE_AND_WAIT_OFF;
+        break;
+
+      case STATE_RELEASE_AND_WAIT_OFF:
+        /* 4. Apagar o LED */
+        ledrgb_clearGreenLed();
+
+        /* 5. "Devolver" o recurso */
+#if defined(USE_MUTEX_IMPLEMENTATION)
+        OSA_MutexUnlock(&g_led_mutex);
+#else
+        OSA_SemaPost(&g_led_semaphore);
+#endif
+        /* ** =================== FIM DA SEÇÃO CRÍTICA ====================
+        */
+
+        /* 6. Esperar o período "OFF" */
+        OSA_TimeDelay(300); /* 300 ms */
+
+        /* Transição: Voltar ao início para tentar de novo */
+        currentState = STATE_WAIT_FOR_RESOURCE;
+        break;
+
+      default:
+        currentState = STATE_WAIT_FOR_RESOURCE;
+        break;
+    }
+
+#ifdef PEX_USE_RTOS
+  }
+#endif
+}
+/* END os_tasks */
+
+#ifdef __cplusplus
+}  /* extern "C" */
+#endif

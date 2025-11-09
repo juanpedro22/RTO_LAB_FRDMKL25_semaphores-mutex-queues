@@ -1,0 +1,171 @@
+/* ###################################################################
+** Filename    : os_tasks.c
+** Project     : lab4
+** Processor   : MKL25Z128VLK4
+** Component   : Events
+** Version     : Driver 01.00
+** Compiler    : GNU C Compiler
+** Date/Time   : 2025-10-26, 16:10
+** ###################################################################*/
+
+/*!
+** @file os_tasks.c
+** @version 01.00
+** @brief
+** This is user's event module.
+*/
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+
+/* FreeRTOS semaphore API */
+#include "FreeRTOS.h"
+#include "semphr.h"
+
+/* HAL for LEDs */
+#include "ledrgb_hal.h"
+
+/*
+ * Semaphore used to synchronize Task1 <-> Task2.
+ * Created lazily in ledSema_init() to avoid ordering issues.
+ */
+static SemaphoreHandle_t ledSema = NULL;
+
+/* Initialize the semaphore once (protected by critical section). */
+static void ledSema_init(void)
+{
+    taskENTER_CRITICAL();
+    if (ledSema == NULL) {
+        /* Create a binary semaphore. Initial count will be 0 or 1 depending on
+           FreeRTOS version; consume it to ensure initial state is 0 (blocked). */
+        ledSema = xSemaphoreCreateBinary();
+        if (ledSema != NULL) {
+            /* If semaphore was created in "given" state, take it to make it empty. */
+            (void)xSemaphoreTake(ledSema, (TickType_t)0);
+        }
+    }
+    taskEXIT_CRITICAL();
+
+    /* If creation failed, hang here for debugging (optional alternative: error handling) */
+    if (ledSema == NULL) {
+        for (;;) { /* critical failure: semaphore not created */ }
+    }
+}
+
+/*
+** ===================================================================
+** Event       :  Task1_task (module os_tasks)
+** Component   :  Task1 [OS_Task]
+** ===================================================================
+*/
+void Task1_task(os_task_param_t task_init_data)
+{
+    typedef enum {
+        STATE_RED_ON,
+        STATE_RED_OFF
+    } fsm1_state_t;
+
+    fsm1_state_t currentState = STATE_RED_ON;
+
+    /* Initialize LED hardware (should be idempotent) */
+    ledrgb_init();
+
+    /* Ensure semaphore exists before using it */
+    ledSema_init();
+
+#ifdef PEX_USE_RTOS
+    while (1) {
+#endif
+        switch (currentState) {
+            case STATE_RED_ON:
+                /* Turn red LED on (HAL takes care of active-low if needed) */
+                ledrgb_setRedLed();
+
+                /* Delay for 500 ms */
+                OSA_TimeDelay(500);
+
+                /* Transition to next state */
+                currentState = STATE_RED_OFF;
+
+                /* Signal Task2 that it may run (post) */
+                (void)xSemaphoreGive(ledSema);
+                break;
+
+            case STATE_RED_OFF:
+                /* Turn red LED off */
+                ledrgb_clearRedLed();
+
+                /* Delay for 500 ms */
+                OSA_TimeDelay(500);
+
+                /* Transition to next state */
+                currentState = STATE_RED_ON;
+                break;
+
+            default:
+                /* Reset to initial state if invalid */
+                currentState = STATE_RED_ON;
+                break;
+        }
+#ifdef PEX_USE_RTOS
+    }
+#endif
+}
+
+/*
+** ===================================================================
+** Event       :  Task2_task (module os_tasks)
+** Component   :  Task2 [OS_Task]
+** ===================================================================
+*/
+void Task2_task(os_task_param_t task_init_data)
+{
+    typedef enum {
+        STATE_GREEN_ON,
+        STATE_GREEN_OFF
+    } fsm2_state_t;
+
+    fsm2_state_t currentState = STATE_GREEN_ON;
+
+    /* Initialize LED hardware (idempotent) */
+    ledrgb_init();
+
+    /* Ensure semaphore exists before using it */
+    ledSema_init();
+
+#ifdef PEX_USE_RTOS
+    while (1) {
+#endif
+        /* Wait for semaphore (block indefinitely) */
+        if (xSemaphoreTake(ledSema, portMAX_DELAY) == pdTRUE) {
+
+            /* On semaphore, execute green LED FSM */
+            switch (currentState) {
+                case STATE_GREEN_ON:
+                    ledrgb_setGreenLed();
+                    OSA_TimeDelay(300);
+                    currentState = STATE_GREEN_OFF;
+                    break;
+
+                case STATE_GREEN_OFF:
+                    ledrgb_clearGreenLed();
+                    OSA_TimeDelay(300);
+                    currentState = STATE_GREEN_ON;
+                    break;
+
+                default:
+                    currentState = STATE_GREEN_ON;
+                    break;
+            }
+
+            /* Note: We do not repost the semaphore here. Task1 controls posts. */
+        } else {
+            /* Not expected when using portMAX_DELAY; handle if using timeout */
+        }
+#ifdef PEX_USE_RTOS
+    }
+#endif
+}
+
+/* END os_tasks */

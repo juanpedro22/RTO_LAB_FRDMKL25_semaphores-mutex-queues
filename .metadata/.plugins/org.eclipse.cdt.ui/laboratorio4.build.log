@@ -1,0 +1,11 @@
+20:00:37 **** Incremental Build of configuration Debug for project laboratorio4 ****
+make all 
+'Invoking: Cross ARM GNU Print Size'
+arm-none-eabi-size --format=berkeley "laboratorio4.elf"
+   text	   data	    bss	    dec	    hex	filename
+  17728	    120	   3096	  20944	   51d0	laboratorio4.elf
+'Finished building: laboratorio4.siz'
+' '
+
+20:00:37 Build Finished (took 836ms)
+

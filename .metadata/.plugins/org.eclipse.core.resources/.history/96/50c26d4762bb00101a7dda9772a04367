@@ -1,0 +1,66 @@
+/* ###################################################################
+** Filename    : os_tasks.c
+** Project     : lab3
+** Processor   : MKL25Z128VLK4
+** Component   : Events
+** Version     : Driver 01.00
+** Compiler    : GNU C Compiler
+** Date/Time   : 2025-10-26, 16:10, # CodeGen: 2
+** Abstract    :
+** This is user's event module.
+** Put your event handler code here.
+** Settings    :
+** Contents    :
+** Task1_task - void Task1_task(os_task_param_t task_init_data);
+**
+** ###################################################################*/
+/*!
+** @file os_tasks.c
+** @version 01.00
+** @brief
+** This is user's event module.
+** Put your event handler code here.
+*/
+/*!
+** @addtogroup os_tasks_module os_tasks module documentation
+** @{
+*/
+/* MODULE os_tasks */
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* User includes (#include below this line is not maintained by Processor Expert) */
+
+/* Incluindo a nova Hardware Abstraction Layer (HAL) para os LEDs */
+#include "ledrgb_hal.h"
+
+20:44:02 **** Incremental Build of configuration Debug for project lab4 ****
+make all
+'Building file: ../Sources/os_tasks.c'
+'Invoking: Cross ARM C Compiler'
+arm-none-eabi-gcc -mcpu=cortex-m0plus -mthumb -O0 -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -Wall  -g3 -D"CPU_MKL25Z128VLK4" -D"FSL_RTOS_FREE_RTOS" -I"C:/Users/juan_/OneDrive/Documentos/Mestrado/Software Real Time/lab 4 e 5/lab4/SDK/platform/hal/inc" -I"C:/Users/juan_/OneDrive/Documentos/Mestrado/Software Real Time/lab 4 e 5/lab4/SDK/platform/hal/src/sim/MKL25Z4" -I"C:/Users/juan_/OneDrive/Documentos/Mestrado/Software Real Time/lab 4 e 5/lab4/SDK/platform/system/src/clock/MKL25Z4" -I"C:/Users/juan_/OneDrive/Documentos/Mestrado/Software Real Time/lab 4 e 5/lab4/SDK/platform/system/inc" -I"C:/Users/juan_/OneDrive/Documentos/Mestrado/Software Real Time/lab 4 e 5/lab4/SDK/platform/osa/inc" -I"C:/Users/juan_/OneDrive/Documentos/Mestrado/Software Real Time/lab 4 e 5/lab4/SDK/platform/CMSIS/Include" -I"C:/Users/juan_/OneDrive/Documentos/Mestrado/Software Real Time/lab 4 e 5/lab4/SDK/platform/devices" -I"C:/Users/juan_/OneDrive/Documentos/Mestrado/Software Real Time/lab 4 e 5/lab4/SDK/platform/devices/MKL25Z4/include" -I"C:/Users/juan_/OneDrive/Documentos/Mestrado/Software Real Time/lab 4 e 5/lab4/SDK/platform/devices/MKL25Z4/startup" -I"C:/Users/juan_/OneDrive/Documentos/Mestrado/Software Real Time/lab 4 e 5/lab4/Generated_Code/SDK/platform/devices/MKL25Z4/startup" -I"C:/Users/juan_/OneDrive/Documentos/Mestrado/Software Real Time/lab 4 e 5/lab4/Sources" -I"C:/Users/juan_/OneDrive/Documentos/Mestrado/Software Real Time/lab 4 e 5/lab4/Generated_Code" -I"C:/Users/juan_/OneDrive/Documentos/Mestrado/Software Real Time/lab 4 e 5/lab4/SDK/rtos/FreeRTOS/include" -I"C:/Users/juan_/OneDrive/Documentos/Mestrado/Software Real Time/lab 4 e 5/lab4/SDK/rtos/FreeRTOS/port/gcc" -I"C:/Users/juan_/OneDrive/Documentos/Mestrado/Software Real Time/lab 4 e 5/lab4/Generated_Code/SDK/rtos/FreeRTOS/config" -I"C:/Users/juan_/OneDrive/Documentos/Mestrado/Software Real Time/lab 4 e 5/lab4/SDK/platform/drivers/inc" -std=c99 -MMD -MP -MF"Sources/os_tasks.d" -MT"Sources/os_tasks.o" -c -o "Sources/os_tasks.o" "../Sources/os_tasks.c"
+../Sources/os_tasks.c:4:1: error: unknown type name 'OSA_SEMA_STRUCT'
+ static OSA_SEMA_STRUCT ledSema;
+ ^
+../Sources/os_tasks.c:7:17: error: unknown type name 'os_task_param_t'
+ void Task1_task(os_task_param_t task_init_data)
+                 ^
+../Sources/os_tasks.c:54:17: error: unknown type name 'os_task_param_t'
+ void Task2_task(os_task_param_t task_init_data)
+                 ^
+../Sources/os_tasks.c:4:24: warning: 'ledSema' defined but not used [-Wunused-variable]
+ static OSA_SEMA_STRUCT ledSema;
+                        ^
+make: *** [Sources/os_tasks.o] Error 1
+
+20:44:03 Build Finished (took 1s.60ms)
+
+
+
