@@ -106,3 +106,133 @@ A **binary semaphore** (`ledSema`) is used for synchronization:
 > With **Task2 (green)** at **higher priority (2)**  
 > and **Task1 (red)** at **lower priority (1)**,  
 > the system consistently produces a **predictable overlap phase** of approximately **300 ms**, perceived as **orange**, between **500 ms and 800 ms** in each 1-second cycle.
+
+
+# 🧩 Using a Mutex for LED Synchronization | 🟢 Green 🔴 Red |
+
+A **mutex (mutual exclusion lock)** is used to **protect shared resources** — in this case, the LED hardware.  
+Unlike a semaphore, the **mutex does not signal or wake up other tasks**; instead, it ensures that **only one task** can control the LEDs at a time.
+
+In this experiment:
+- `Task1` and `Task2` both call the LED driver (`ledrgb_*`), which accesses shared GPIOs.  
+- A **mutex** (`ledMutex`) is used to ensure exclusive access to the LED hardware during write operations.  
+- Each task **locks** (`OSA_MutexLock()`) before modifying the LED, and **unlocks** (`OSA_MutexUnlock()`) afterward.  
+
+---
+
+## ⚙️ SYSML Diagram
+
+![alt text](sysml_mutex.png)
+
+---
+
+## ⚙️ Operation and Interaction
+
+1. **Task1** starts by acquiring the mutex and turning ON the **red LED**.  
+   After setting the LED, it **releases the mutex**, but the red LED **stays ON** physically during its 500 ms delay.  
+2. Meanwhile, **Task2** can also acquire the mutex, since Task1 already released it.  
+   It locks, turns ON the **green LED**, and releases the mutex.  
+3. As a result, both LEDs remain ON simultaneously for part of the cycle, creating the **same orange overlap** effect.  
+4. Later, each task locks again to turn OFF its LED after their respective delays.  
+5. The cycle repeats indefinitely, maintaining a deterministic pattern.
+
+---
+
+## 🧩 Temporal Table — Deterministic Execution (Short Mutex Section)
+
+| Time (ms) | Action / State | Running Task | LED Status | Explanation |
+|------------|----------------|---------------|-------------|--------------|
+| **0 – 500** | `OSA_MutexLock()` → `ledrgb_setRedLed()` → `OSA_MutexUnlock()` → delay 500 ms | 🟥 **Task1 (RED_ON)** | 🔴 Red ON<br>🟢 Green OFF | Task1 sets the red LED ON. The mutex protects the access but is released immediately after writing. |
+| **≈ 500** | Task2 obtains mutex and sets GREEN ON | 🟢 **Task2 (GREEN_ON)** | 🟠 **Orange (RED + GREEN)** | Both LEDs ON simultaneously → perceived orange. The mutex does not prevent overlap because it only protects brief access to GPIOs. |
+| **500 – 800** | `ledrgb_setGreenLed()` → delay 300 ms | 🟢 **Task2 (GREEN_ON)** | 🟠 Orange | Both LEDs remain ON during this interval. |
+| **≈ 800** | Task2 locks → clears GREEN → unlocks | 🟢 **Task2 (GREEN_OFF)** | 🔴 Red still ON | Task2 finishes; red LED remains ON until Task1 clears it later. |
+| **800 – 1000** | Task1 locks → clears RED → unlocks | 🟥 **Task1 (RED_OFF)** | 🔴 OFF<br>🟢 OFF | Task1 clears red LED; both are OFF. |
+| **1000 – 1500** | Task1 locks → sets RED → unlocks → delay | 🟥 **Task1 (next cycle)** | 🔴 Red ON | New cycle starts; overlap will reappear at 500–800 ms. |
+
+---
+
+## 🧠 Logical Event Summary
+
+| Step | Event | Action | Result |
+|------|--------|--------|---------|
+| (1) | Task1 locks and turns RED ON | `OSA_MutexLock()` → `ledrgb_setRedLed()` → `OSA_MutexUnlock()` | Red LED ON |
+| (2) | Task1 waits 500 ms | `vTaskDelay(500)` | Red remains ON (no lock held) |
+| (3) | Task2 locks and turns GREEN ON | `OSA_MutexLock()` → `ledrgb_setGreenLed()` → `OSA_MutexUnlock()` | Green ON + Red ON → **Orange visible** |
+| (4) | Task2 waits 300 ms | `vTaskDelay(300)` | Both LEDs ON |
+| (5) | Task2 clears GREEN | `OSA_MutexLock()` → `ledrgb_clearGreenLed()` → `OSA_MutexUnlock()` | Green OFF |
+| (6) | Task1 clears RED later | `OSA_MutexLock()` → `ledrgb_clearRedLed()` → `OSA_MutexUnlock()` | Both OFF |
+| (7) | Cycle restarts | — | Overlap repeats predictably |
+
+---
+
+## 🧮 System Parameters
+
+| Parameter | Value |
+|------------|--------|
+| Task1 period | 1000 ms |
+| RED duty cycle | 50% |
+| RED ON delay | 500 ms |
+| RED OFF delay | 500 ms |
+| GREEN ON delay | 300 ms |
+| GREEN OFF delay | 300 ms |
+| Mutex | `OSA_MutexCreate()` / `OSA_MutexLock()` / `OSA_MutexUnlock()` |
+| Task1 priority | 1 |
+| Task2 priority | 2 |
+| Emergent effect | **Light overlap (orange)** between 500 – 800 ms |
+
+---
+
+## 🧭 Final Interpretation
+
+- The **mutex** provides *mutual exclusion*, not synchronization.  
+  It prevents concurrent access to the LED driver but does **not** enforce timing or ordering between tasks.  
+- Because both tasks release the mutex immediately after writing, the **LEDs remain ON** physically, leading to **overlap (orange)**.  
+- The **system is deterministic** — the overlap happens at the same period in every cycle.  
+- The **orange color** is again a **physical result** of concurrent illumination, not a software computation.
+
+---
+
+## 🧩 Behavioral Alternatives (with Mutex)
+
+| Objective | Code Change | Result |
+|------------|-------------|---------|
+| **Eliminate overlap (strict exclusivity)** | Hold the mutex during the entire ON duration (`lock → set → delay → clear → unlock`) | ✅ No overlap, but blocks other tasks for the full ON period |
+| **Protect only HAL access (current behavior)** | Keep short mutex section (`lock → set → unlock`) | ⚠️ Overlap occurs; more realistic in multitasking systems |
+| **Combine with semaphore for timing control** | Use semaphore to control when Task2 runs + short mutex for hardware access | ✅ Best compromise — no overlap, good responsiveness |
+
+---
+
+## ⚖️ Mutex vs Semaphore — Conceptual Comparison
+
+| Feature | **Binary Semaphore** | **Mutex** |
+|----------|----------------------|-----------|
+| Purpose | **Signaling / synchronization** between tasks | **Mutual exclusion** for shared resources |
+| Ownership | Anonymous — any task can `give` or `take` | Owned — only the task that locks can unlock |
+| Priority inheritance | ❌ No (depends on RTOS implementation) | ✅ Yes — prevents priority inversion |
+| Can be used from ISR | ✅ Often yes | ❌ Usually no |
+| Used for timing control | ✅ Yes | ❌ No (mutex doesn’t schedule) |
+| Common use case | Handshaking between tasks | Protecting critical sections / drivers |
+| Effect on LEDs here | Causes **overlap** if `give` occurs before `clear` | Causes **overlap** if lock released before OFF |
+| Way to remove overlap | `clear` before `give` | Hold mutex during ON or add semaphore |
+
+---
+
+## 📊 Conclusion
+
+> In this FreeRTOS system:
+> - The **mutex** ensures atomic access to LED control functions.  
+> - However, it **does not prevent concurrent LED states**, because it only protects brief access (not the ON period).  
+> - To completely avoid overlap (orange), the mutex must be **held during the full ON duration** — which serializes tasks but breaks responsiveness.  
+> - Therefore, the **semaphore approach (with proper order: clear → give)** is generally the preferred way to coordinate timing between tasks.
+
+---
+
+## ✅ Summary
+
+| Mechanism | Used for | Prevents overlap? | Recommended usage |
+|------------|-----------|------------------|-------------------|
+| **Semaphore** | Signaling between tasks | ⚠️ Only if ordered correctly (`clear → give`) | Task synchronization |
+| **Mutex** | Protecting hardware access | ❌ Not by itself | Short critical sections |
+| **Semaphore + Mutex** | Signaling + protection | ✅ Yes | Robust, realistic multitasking |
+
+---

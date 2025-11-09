@@ -1,0 +1,90 @@
+/* ###################################################################
+**     Filename    : main.c
+**     Project     : lab4
+**     Processor   : MKL25Z128VLK4
+**     Version     : Driver 01.01
+**     Compiler    : GNU C Compiler
+**     Date/Time   : 2025-11-06, 20:09, # CodeGen: 0
+** ###################################################################*/
+
+/*!
+** @file main.c
+** @version 01.01
+** @brief Main module.
+*/
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+#include "semphr.h"
+#include "clockMan1.h"
+#include "pin_init.h"
+#include "osa1.h"              /* Processor Expert / SDK OSA header (contains OSA_MUTEX_STRUCT) */
+#include "free_rtos.h"
+#include "gpio1.h"
+#include "Task1.h"
+#include "Task2.h"
+#include "DbgCs1.h"
+#include "fsl_debug_console.h"
+/* #include "fsl_clock.h"  -- removed if not in include path */
+#if CPU_INIT_CONFIG
+  #include "Init_Config.h"
+#endif
+
+/* User includes (#include below this line is not maintained by Processor Expert) */
+
+/* -----------------------------
+ * Global: OSA mutex for LED HAL
+ * Visible to os_tasks.c via 'extern'
+ * ----------------------------- */
+OSA_MUTEX_STRUCT ledMutex; /* Processor Expert OSA mutex object */
+
+/*lint -save  -e970 Disable MISRA rule (6.3) checking. */
+
+int main(void)
+/*lint -restore Enable MISRA rule (6.3) checking. */
+{
+  /* Write your local variable definition here */
+
+  /*** Processor Expert internal initialization. DON'T REMOVE THIS CODE!!! ***/
+  PE_low_level_init();
+  /*** End of Processor Expert internal initialization.                    ***/
+
+  /* ---------- Initialize DbgConsole (after PE_low_level_init()) ---------- */
+#ifdef BOARD_DEBUG_UART_BASEADDR
+  (void)DbgConsole_Init(BOARD_DEBUG_UART_BASEADDR,
+                       BOARD_DEBUG_UART_BAUDRATE,
+                       DEBUG_CONSOLE_DEVICE_TYPE_UART,
+                       BOARD_DEBUG_UART_CLK_FREQ);
+#else
+  /* If you want console but don't have BOARD_DEBUG_UART_* macros, init UART
+     with Processor Expert generated functions (e.g. UART0_Init) or implement
+     a minimal UART send using available APIs. */
+#endif
+
+  /* ---------- Create OSA mutex (before RTOS start) ---------- */
+  if (OSA_MutexCreate(&ledMutex) != kStatus_OSA_Success) {
+      /* critical failure allocating mutex */
+      for(;;) { /* trap for debug */ }
+  }
+
+  /* Note:
+   * OSA_MutexCreate typically returns a status (kStatus_OSA_Success on success).
+   * Check your SDK headers if the return value/type differs.
+   */
+
+  /* Write your code here */
+  /* For example: for(;;) { } */
+
+  /*** RTOS startup code. Macro PEX_RTOS_START is defined by the RTOS component. DON'T MODIFY THIS CODE!!! ***/
+  #ifdef PEX_RTOS_START
+    PEX_RTOS_START();                  /* Startup of the selected RTOS. Macro is defined by the RTOS component. */
+  #endif
+  /*** End of RTOS startup code.  ***/
+
+  /*** Processor Expert end of main routine. DON'T MODIFY THIS CODE!!! ***/
+  for(;;){}
+  /*** Processor Expert end of main routine. DON'T WRITE CODE BELOW!!! ***/
+} /*** End of main routine. DO NOT MODIFY THIS TEXT!!! ***/
+
+/* END main */

@@ -1,0 +1,183 @@
+/* os_tasks.c - Task1/Task2 with mutex protection option
+ *
+ * Usage:
+ *  - To use OSA mutex API provided by NXP/ProcessorExpert, add:
+ *      #define USE_OSA_MUTEX 1
+ *    and ensure the proper OSA header is available in include path.
+ *
+ *  - Otherwise the code falls back to FreeRTOS mutex (xSemaphoreCreateMutex)
+ *
+ * Behavior:
+ *  - This variant uses the mutex to PROTECT access to the LED HAL.
+ *    Both tasks lock the mutex before calling ledrgb_set*/clear*.
+ *    This prevents simultaneous modification and removes the 'both ON' overlap
+ *    that you observed with the signaling semaphore.
+ */
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+
+/* FreeRTOS headers */
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+
+/* HAL for LEDs */
+#include "ledrgb_hal.h"
+
+/* Debug console */
+#include "fsl_debug_console.h"
+
+/* Fallback pdMS_TO_TICKS if not defined */
+#ifndef pdMS_TO_TICKS
+#define pdMS_TO_TICKS(ms) ((TickType_t)((((TickType_t)(ms) * (TickType_t)configTICK_RATE_HZ) + 500u) / 1000u))
+#endif
+
+/* Choose mutex implementation:
+ * - define USE_OSA_MUTEX to 1 if your SDK provides OSA_MutexCreate / OSA_MutexLock / OSA_MutexUnlock
+ * - otherwise FreeRTOS mutex will be used (default)
+ */
+#ifndef USE_OSA_MUTEX
+#define USE_OSA_MUTEX 0
+#endif
+
+#if USE_OSA_MUTEX
+/* OSA mutex API (Processor Expert / SDK)
+ * Make sure the correct header is available (example: "fsl_os_abstraction.h" or "osa.h")
+ */
+#include "fsl_os_abstraction.h" /* adjust include if your SDK uses a different header */
+
+extern OSA_MUTEX_STRUCT ledMutex; /* create in main.c with OSA_MutexCreate(&ledMutex); */
+
+static inline void mutex_lock(void)
+{
+    /* wait forever */
+    (void)OSA_MutexLock(&ledMutex, OSA_WAIT_FOREVER);
+}
+static inline void mutex_unlock(void)
+{
+    (void)OSA_MutexUnlock(&ledMutex);
+}
+
+#else
+/* FreeRTOS mutex fallback */
+static SemaphoreHandle_t ledMutex = NULL; /* created in main.c or here */
+
+static inline void mutex_lock(void)
+{
+    /* block until we take the mutex */
+    (void)xSemaphoreTake(ledMutex, portMAX_DELAY);
+}
+static inline void mutex_unlock(void)
+{
+    (void)xSemaphoreGive(ledMutex);
+}
+#endif /* USE_OSA_MUTEX */
+
+/*
+ * Task1: blink RED and (with mutex protection) allow exclusive LED access
+ */
+void Task1_task(os_task_param_t task_init_data)
+{
+    typedef enum {
+        STATE_RED_ON,
+        STATE_RED_OFF
+    } fsm1_state_t;
+
+    fsm1_state_t currentState = STATE_RED_ON;
+
+    /* initialize HW (idempotent) */
+    ledrgb_init();
+
+#ifdef PEX_USE_RTOS
+    while (1) {
+#endif
+        switch (currentState) {
+            case STATE_RED_ON:
+                /* Protect the call to LED HAL */
+                mutex_lock();
+                ledrgb_setRedLed();
+                mutex_unlock();
+
+                vTaskDelay(pdMS_TO_TICKS(500));
+
+                /* transition */
+                currentState = STATE_RED_OFF;
+                /* NOTE:
+                 * With mutex-as-protection we do NOT signal Task2.
+                 * If you want Task2 to run on Task1 request, keep the semaphore approach.
+                 */
+                break;
+
+            case STATE_RED_OFF:
+                mutex_lock();
+                ledrgb_clearRedLed();
+                mutex_unlock();
+
+                vTaskDelay(pdMS_TO_TICKS(500));
+                currentState = STATE_RED_ON;
+                break;
+
+            default:
+                currentState = STATE_RED_ON;
+                break;
+        }
+#ifdef PEX_USE_RTOS
+    }
+#endif
+}
+
+/*
+ * Task2: wait passively or run periodic cycle protected by mutex
+ *
+ * NOTE:
+ * This variant DOES NOT use semaphore signaling anymore.
+ * Task2 simply runs its own FSM and uses the same mutex to access LEDs,
+ * preventing simultaneous access (no emergent ORANGE).
+ *
+ * If you want Task2 to only run when signaled, you must reintroduce a
+ * signaling primitive (semaphore or event) or implement a handshake.
+ */
+void Task2_task(os_task_param_t task_init_data)
+{
+    typedef enum {
+        STATE_GREEN_ON,
+        STATE_GREEN_OFF
+    } fsm2_state_t;
+
+    fsm2_state_t currentState = STATE_GREEN_ON;
+
+    /* initialize HW */
+    ledrgb_init();
+
+#ifdef PEX_USE_RTOS
+    while (1) {
+#endif
+        switch (currentState) {
+            case STATE_GREEN_ON:
+                mutex_lock();
+                ledrgb_setGreenLed();
+                mutex_unlock();
+
+                vTaskDelay(pdMS_TO_TICKS(300));
+                currentState = STATE_GREEN_OFF;
+                break;
+
+            case STATE_GREEN_OFF:
+                mutex_lock();
+                ledrgb_clearGreenLed();
+                mutex_unlock();
+
+                vTaskDelay(pdMS_TO_TICKS(300));
+                currentState = STATE_GREEN_ON;
+                break;
+
+            default:
+                currentState = STATE_GREEN_ON;
+                break;
+        }
+#ifdef PEX_USE_RTOS
+    }
+#endif
+}

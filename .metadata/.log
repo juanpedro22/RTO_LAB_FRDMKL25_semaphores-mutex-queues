@@ -34,3 +34,9 @@ This warning can be switched off on the Team > Git > Confirmations and Warnings 
 !MESSAGE Request for monitor: 'RequestMonitor (org.eclipse.cdt.dsf.mi.service.MIRunControl$9@10f676a): Status ERROR: org.eclipse.cdt.dsf.gdb code=10001 Context cannot be suspended. null' resulted in an error.
 !SUBENTRY 1 org.eclipse.cdt.dsf.gdb 4 10001 2025-11-06 21:41:12.174
 !MESSAGE Context cannot be suspended.
+
+!ENTRY com.freescale.processorexpert.core 4 0 2025-11-09 16:32:30.121
+!MESSAGE PExCore: Invalid ID of the project component (fsl_lptmr_hal).
+
+!ENTRY org.eclipse.cdt.core 1 0 2025-11-09 16:32:30.467
+!MESSAGE Indexed 'lab4_with_mutex' (48 sources, 119 headers) in 1,23 sec: 9.142 declarations; 22.029 references; 49 unresolved inclusions; 103 syntax errors; 2.118 unresolved names (6,4%)

@@ -1,0 +1,139 @@
+/* os_tasks.c - using OSA mutex (Processor Expert API) to protect LED HAL */
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+
+/* FreeRTOS headers */
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+
+/* HAL for LEDs */
+#include "ledrgb_hal.h"
+
+/* Debug console (optional) */
+#include "fsl_debug_console.h"
+
+/* Fallback pdMS_TO_TICKS if not defined */
+#ifndef pdMS_TO_TICKS
+#define pdMS_TO_TICKS(ms) ((TickType_t)((((TickType_t)(ms) * (TickType_t)configTICK_RATE_HZ) + 500u) / 1000u))
+#endif
+
+/* Use the OSA mutex created in main.c */
+extern OSA_MUTEX_STRUCT ledMutex;
+
+/* Small wrappers to make code cleaner and to adapt to OSA API */
+static inline void led_mutex_lock(void)
+{
+    /* Block forever until we take the mutex */
+    (void)OSA_MutexLock(&ledMutex, OSA_WAIT_FOREVER);
+}
+
+static inline void led_mutex_unlock(void)
+{
+    (void)OSA_MutexUnlock(&ledMutex);
+}
+
+/*
+ * Task1: blink RED using mutex to protect LED HAL
+ */
+void Task1_task(os_task_param_t task_init_data)
+{
+    typedef enum {
+        STATE_RED_ON,
+        STATE_RED_OFF
+    } fsm1_state_t;
+
+    fsm1_state_t currentState = STATE_RED_ON;
+
+    /* initialize hardware (idempotent) */
+    ledrgb_init();
+
+#ifdef PEX_USE_RTOS
+    while (1) {
+#endif
+        switch (currentState) {
+            case STATE_RED_ON:
+                /* Lock mutex, set RED, then unlock */
+                led_mutex_lock();
+                ledrgb_setRedLed();
+                led_mutex_unlock();
+
+                vTaskDelay(pdMS_TO_TICKS(500));
+
+                /* Transition: RED_OFF */
+                currentState = STATE_RED_OFF;
+
+                /* NOTE: We are NOT using semaphore signaling here.
+                 * This variant uses the mutex to protect access only.
+                 */
+
+                break;
+
+            case STATE_RED_OFF:
+                led_mutex_lock();
+                ledrgb_clearRedLed();
+                led_mutex_unlock();
+
+                vTaskDelay(pdMS_TO_TICKS(500));
+                currentState = STATE_RED_ON;
+                break;
+
+            default:
+                currentState = STATE_RED_ON;
+                break;
+        }
+#ifdef PEX_USE_RTOS
+    }
+#endif
+}
+
+/*
+ * Task2: blink GREEN using same mutex for protection
+ *
+ * This task is now independent (no semaphore). It uses the mutex to protect
+ * calls to the LED HAL so both tasks never access the HAL simultaneously.
+ */
+void Task2_task(os_task_param_t task_init_data)
+{
+    typedef enum {
+        STATE_GREEN_ON,
+        STATE_GREEN_OFF
+    } fsm2_state_t;
+
+    fsm2_state_t currentState = STATE_GREEN_ON;
+
+    /* initialize hardware (idempotent) */
+    ledrgb_init();
+
+#ifdef PEX_USE_RTOS
+    while (1) {
+#endif
+        switch (currentState) {
+            case STATE_GREEN_ON:
+                led_mutex_lock();
+                ledrgb_setGreenLed();
+                led_mutex_unlock();
+
+                vTaskDelay(pdMS_TO_TICKS(300));
+                currentState = STATE_GREEN_OFF;
+                break;
+
+            case STATE_GREEN_OFF:
+                led_mutex_lock();
+                ledrgb_clearGreenLed();
+                led_mutex_unlock();
+
+                vTaskDelay(pdMS_TO_TICKS(300));
+                currentState = STATE_GREEN_ON;
+                break;
+
+            default:
+                currentState = STATE_GREEN_ON;
+                break;
+        }
+#ifdef PEX_USE_RTOS
+    }
+#endif
+}
