@@ -22,7 +22,7 @@ A **binary semaphore** (`ledSema`) is used for synchronization:
 
 ## ⚙️ SYSML Diagram
 
-![alt text](image-2.png)
+![alt text](sysml_semaphore.png)
 
 ---
 
