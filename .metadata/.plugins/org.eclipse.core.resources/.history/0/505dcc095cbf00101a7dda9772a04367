@@ -1,0 +1,142 @@
+/* os_tasks.c - Tarefas integradas para os dois modos
+ *
+ * Substitua o os_tasks.c antigo por este.
+ */
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+
+#include "FreeRTOS.h"
+#include "task.h"
+
+#include "ledrgb_hal.h"
+#include "fsl_debug_console.h"
+
+#include "sync_hal.h" /* API de sincronização unificada */
+
+/* Fallback pdMS_TO_TICKS se não existir */
+#ifndef pdMS_TO_TICKS
+#define pdMS_TO_TICKS(ms) ((TickType_t)((((TickType_t)(ms) * (TickType_t)configTICK_RATE_HZ) + 500u) / 1000u))
+#endif
+
+/* ---------------- Task1 ----------------
+ * Modo semáforo: acende vermelho e sinaliza Task2 (led_signal).
+ * Modo mutex: protege acesso ao HAL com led_lock/led_unlock.
+ */
+void Task1_task(os_task_param_t task_init_data)
+{
+    typedef enum { STATE_RED_ON, STATE_RED_OFF } fsm1_state_t;
+    fsm1_state_t currentState = STATE_RED_ON;
+
+    /* Inicializa hardware (idempotente) */
+    ledrgb_init();
+
+#ifdef PEX_USE_RTOS
+    while (1) {
+#endif
+        switch (currentState) {
+            case STATE_RED_ON:
+#ifdef USE_MUTEX
+                /* Mutex: proteger operações no HAL */
+                led_lock();
+                ledrgb_setRedLed();
+                led_unlock();
+#else
+                /* Semáforo: set e depois signal (comportamento original) */
+                ledrgb_setRedLed();
+                vTaskDelay(pdMS_TO_TICKS(1)); /* pequeno atraso para estabilizar se quiser */
+                led_signal(); /* sinaliza Task2 */
+#endif
+                vTaskDelay(pdMS_TO_TICKS(500));
+                currentState = STATE_RED_OFF;
+                break;
+
+            case STATE_RED_OFF:
+#ifdef USE_MUTEX
+                led_lock();
+                ledrgb_clearRedLed();
+                led_unlock();
+#else
+                ledrgb_clearRedLed();
+#endif
+                vTaskDelay(pdMS_TO_TICKS(500));
+                currentState = STATE_RED_ON;
+                break;
+
+            default:
+                currentState = STATE_RED_ON;
+                break;
+        }
+#ifdef PEX_USE_RTOS
+    }
+#endif
+}
+
+/* ---------------- Task2 ----------------
+ * Modo semáforo: espera led_wait() e então pisca verde um ciclo.
+ * Modo mutex: apenas protege operações no HAL.
+ */
+void Task2_task(os_task_param_t task_init_data)
+{
+    typedef enum { STATE_GREEN_ON, STATE_GREEN_OFF } fsm2_state_t;
+    fsm2_state_t currentState = STATE_GREEN_ON;
+
+    ledrgb_init();
+
+#ifdef PEX_USE_RTOS
+    while (1) {
+#endif
+
+#ifndef USE_MUTEX
+        /* Semáforo: bloqueia até receber sinal de Task1 */
+        led_wait();
+        /* agora realiza o ciclo verde */
+        switch (currentState) {
+            case STATE_GREEN_ON:
+                ledrgb_setGreenLed();
+                vTaskDelay(pdMS_TO_TICKS(300));
+                currentState = STATE_GREEN_OFF;
+                break;
+
+            case STATE_GREEN_OFF:
+                ledrgb_clearGreenLed();
+                vTaskDelay(pdMS_TO_TICKS(300));
+                currentState = STATE_GREEN_ON;
+                break;
+
+            default:
+                currentState = STATE_GREEN_ON;
+                break;
+        }
+#else
+        /* Mutex: proteger operações no HAL (não há sinalização/espera entre tasks) */
+        switch (currentState) {
+            case STATE_GREEN_ON:
+                led_lock();
+                ledrgb_setGreenLed();
+                led_unlock();
+
+                vTaskDelay(pdMS_TO_TICKS(300));
+                currentState = STATE_GREEN_OFF;
+                break;
+
+            case STATE_GREEN_OFF:
+                led_lock();
+                ledrgb_clearGreenLed();
+                led_unlock();
+
+                vTaskDelay(pdMS_TO_TICKS(300));
+                currentState = STATE_GREEN_ON;
+                break;
+
+            default:
+                currentState = STATE_GREEN_ON;
+                break;
+        }
+#endif /* USE_MUTEX */
+
+#ifdef PEX_USE_RTOS
+    }
+#endif
+}

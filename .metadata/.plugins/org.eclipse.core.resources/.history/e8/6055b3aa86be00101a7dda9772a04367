@@ -1,0 +1,218 @@
+/* os_tasks.c - robust version: instrumentation + wait-for-clear before GREEN
+ *
+ * - Task1: set RED -> delay 500 -> clear RED -> put MSG_BLINK_GREEN
+ *   (sets a flag `red_is_on` protected by mutex)
+ * - Task2: wait on queue; when message received, wait until red_is_on==false
+ *   (with a safe timeout + log) then set GREEN -> delay -> clear GREEN
+ *
+ * - Logging: ring buffer in RAM (non-blocking). Use a separate utility to dump buffer after test.
+ */
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+
+#include "FreeRTOS.h"
+#include "task.h"
+
+#include "ledrgb_hal.h"
+#include "fsl_debug_console.h"
+#include "fsl_os_abstraction.h" /* OSA_MsgQPut / OSA_MsgQGet / types */
+
+#ifndef pdMS_TO_TICKS
+#define pdMS_TO_TICKS(ms) ((TickType_t)((((TickType_t)(ms) * (TickType_t)configTICK_RATE_HZ) + 500u) / 1000u))
+#endif
+
+/* externs from main.c */
+extern mutex_t ledMutex;
+extern msg_queue_t *ledQueue; /* MSG_QUEUE_DECLARE(ledQueue, ...) in main.c */
+
+/* Message codes (must match main.c) */
+#define MSG_BLINK_GREEN   (1U)
+#define MSG_NOOP          (0U)
+
+/* -------- instrumentation (ring buffer) -------- */
+#define LOG_SIZE 128
+typedef enum {
+    EVT_T1_SET = 1,
+    EVT_T1_CLEAR,
+    EVT_MSG_PUT,
+    EVT_MSG_PUT_FAIL,
+    EVT_MSG_GET,
+    EVT_T2_SET,
+    EVT_T2_CLEAR,
+    EVT_WAIT_FOR_CLEAR_TIMEOUT
+} evt_t;
+
+static volatile uint32_t log_tick[LOG_SIZE];
+static volatile uint8_t  log_evt[LOG_SIZE];
+static volatile uint32_t log_idx = 0;
+
+static inline void log_event(evt_t e) {
+    uint32_t i = (log_idx++) & (LOG_SIZE - 1);
+    log_evt[i] = (uint8_t)e;
+    /* store tick count safely (no printf) */
+    log_tick[i] = xTaskGetTickCount();
+}
+
+/* Helper to dump log (call from a debug task or after test via UART) */
+void dump_log_buffer(void) {
+    uint32_t i, idx = log_idx;
+    DbgConsole_Printf("=== event log (last %u entries) ===\r\n", LOG_SIZE);
+    for (i = 0; i < LOG_SIZE; i++) {
+        uint32_t j = (idx + i) & (LOG_SIZE - 1);
+        uint8_t e = log_evt[j];
+        if (e == 0) continue;
+        DbgConsole_Printf("%03u: tick=%lu evt=%u\r\n", j, (unsigned long)log_tick[j], (unsigned) e);
+    }
+}
+
+/* -------- shared flag to indicate red state (protected by mutex) -------- */
+static volatile uint8_t red_is_on = 0; /* 0 = off, 1 = on */
+
+/* small wrappers for mutex-protected HAL writes + flag updates */
+static inline void set_red_protected(void) {
+    (void)OSA_MutexLock(&ledMutex, OSA_WAIT_FOREVER);
+    ledrgb_setRedLed();
+    red_is_on = 1;
+    (void)OSA_MutexUnlock(&ledMutex);
+}
+static inline void clear_red_protected(void) {
+    (void)OSA_MutexLock(&ledMutex, OSA_WAIT_FOREVER);
+    ledrgb_clearRedLed();
+    red_is_on = 0;
+    (void)OSA_MutexUnlock(&ledMutex);
+}
+static inline void set_green_protected(void) {
+    (void)OSA_MutexLock(&ledMutex, OSA_WAIT_FOREVER);
+    ledrgb_setGreenLed();
+    (void)OSA_MutexUnlock(&ledMutex);
+}
+static inline void clear_green_protected(void) {
+    (void)OSA_MutexLock(&ledMutex, OSA_WAIT_FOREVER);
+    ledrgb_clearGreenLed();
+    (void)OSA_MutexUnlock(&ledMutex);
+}
+
+/* Task1: RED blink and notify Task2 only after red cleared */
+void Task1_task(os_task_param_t task_init_data)
+{
+    typedef enum { STATE_RED_ON, STATE_RED_OFF } fsm1_state_t;
+    fsm1_state_t currentState = STATE_RED_ON;
+
+    ledrgb_init();
+
+#ifdef PEX_USE_RTOS
+    while (1) {
+#endif
+        switch (currentState) {
+            case STATE_RED_ON:
+                /* set red and set flag (protected) */
+                set_red_protected();
+                log_event(EVT_T1_SET);
+
+                /* remain ON for 500 ms */
+                vTaskDelay(pdMS_TO_TICKS(500));
+
+                /* clear red (protected) BEFORE notifying Task2 */
+                clear_red_protected();
+                log_event(EVT_T1_CLEAR);
+
+                /* Put message to queue AFTER clear */
+                {
+                    uint32_t msg = MSG_BLINK_GREEN;
+                    osa_status_t st = OSA_MsgQPut(ledQueue, (void *)&msg);
+                    if (st == kStatus_OSA_Success) {
+                        log_event(EVT_MSG_PUT);
+                    } else {
+                        log_event(EVT_MSG_PUT_FAIL);
+                        /* optionally retry or handle error; for now continue */
+                    }
+                }
+
+                currentState = STATE_RED_OFF;
+                break;
+
+            case STATE_RED_OFF:
+                /* OFF period 500 ms */
+                vTaskDelay(pdMS_TO_TICKS(500));
+                currentState = STATE_RED_ON;
+                break;
+
+            default:
+                currentState = STATE_RED_ON;
+                break;
+        }
+#ifdef PEX_USE_RTOS
+    }
+#endif
+}
+
+/* Task2: wait for message; when received, wait for red_is_on==0 (bounded wait) then blink green */
+void Task2_task(os_task_param_t task_init_data)
+{
+    typedef enum { STATE_WAIT_MSG, STATE_GREEN_ON, STATE_GREEN_OFF } fsm2_state_t;
+    fsm2_state_t currentState = STATE_WAIT_MSG;
+    uint32_t received_msg = MSG_NOOP;
+    osa_status_t st;
+
+    ledrgb_init();
+
+#ifdef PEX_USE_RTOS
+    while (1) {
+#endif
+        switch (currentState) {
+
+            case STATE_WAIT_MSG:
+                /* block indefinitely until a message arrives */
+                st = OSA_MsgQGet(ledQueue, (void *)&received_msg, OSA_WAIT_FOREVER);
+                if (st == kStatus_OSA_Success) {
+                    log_event(EVT_MSG_GET);
+                    if (received_msg == MSG_BLINK_GREEN) {
+                        /* WAIT until red_is_on == 0, with timeout to avoid infinite blocking.
+                           We poll with small delays (10ms). Adjust timeout as needed. */
+                        const TickType_t poll_delay = pdMS_TO_TICKS(10);
+                        const uint32_t max_polls = 100; /* e.g. 100 * 10ms = 1s max wait */
+                        uint32_t polls = 0;
+                        while (red_is_on != 0 && polls < max_polls) {
+                            polls++;
+                            vTaskDelay(poll_delay); /* yield and wait a bit */
+                        }
+                        if (red_is_on != 0) {
+                            /* timeout waiting for red to be cleared -> log and continue anyway */
+                            log_event(EVT_WAIT_FOR_CLEAR_TIMEOUT);
+                        }
+                        currentState = STATE_GREEN_ON;
+                    } else {
+                        /* unknown message: ignore */
+                        currentState = STATE_WAIT_MSG;
+                    }
+                } else {
+                    /* error getting message: just continue waiting */
+                }
+                break;
+
+            case STATE_GREEN_ON:
+                set_green_protected();
+                log_event(EVT_T2_SET);
+
+                vTaskDelay(pdMS_TO_TICKS(300));
+                currentState = STATE_GREEN_OFF;
+                break;
+
+            case STATE_GREEN_OFF:
+                clear_green_protected();
+                log_event(EVT_T2_CLEAR);
+
+                vTaskDelay(pdMS_TO_TICKS(300));
+                currentState = STATE_WAIT_MSG;
+                break;
+
+            default:
+                currentState = STATE_WAIT_MSG;
+                break;
+        }
+#ifdef PEX_USE_RTOS
+    }
+#endif
+}

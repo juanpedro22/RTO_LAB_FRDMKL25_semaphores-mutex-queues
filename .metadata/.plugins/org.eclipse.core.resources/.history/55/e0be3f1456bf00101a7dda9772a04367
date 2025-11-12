@@ -1,0 +1,149 @@
+/* os_tasks.c - integrado para usar led_lock()/led_unlock() definidos em main.c */
+
+/* includes comuns */
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+
+#include "FreeRTOS.h"
+#include "task.h"
+
+#include "ledrgb_hal.h"
+#include "fsl_debug_console.h"
+
+/* Se pdMS_TO_TICKS não existir em seu ambiente, definimos fallback */
+#ifndef pdMS_TO_TICKS
+#define pdMS_TO_TICKS(ms) ((TickType_t)((((TickType_t)(ms) * (TickType_t)configTICK_RATE_HZ) + 500u) / 1000u))
+#endif
+
+/* Declaramos os wrappers como externos — na prática eles são inline em main.c,
+ * mas declarar extern evita warnings se o linker não propagar inline.
+ * Alternativamente, se preferir, mova as definições de led_lock/led_unlock para um
+ * header compartilhado (ex: sync_hal.h) e inclua-o tanto em main.c quanto em os_tasks.c.
+ */
+extern void led_lock(void);
+extern void led_unlock(void);
+
+/* --- Task1 ---
+ * Padrão: alterna LED vermelho e sinaliza a outra task.
+ * Se estiver usando mutex, led_lock() protege operações no HAL.
+ * Se estiver usando semáforo, led_unlock() age como give e led_lock() como take
+ * (adapte o uso nas tasks conforme semântica desejada).
+ */
+void Task1_task(os_task_param_t task_init_data)
+{
+    typedef enum { STATE_RED_ON, STATE_RED_OFF } fsm1_state_t;
+    fsm1_state_t currentState = STATE_RED_ON;
+
+    ledrgb_init();
+
+#ifdef PEX_USE_RTOS
+    while (1) {
+#endif
+        switch (currentState) {
+            case STATE_RED_ON:
+                /* proteger acesso ao HAL */
+                led_lock();
+                ledrgb_setRedLed();
+                led_unlock();
+
+                vTaskDelay(pdMS_TO_TICKS(500));
+
+                currentState = STATE_RED_OFF;
+
+#ifndef USE_MUTEX
+                /* No modo semáforo: Task1 deseja sinalizar Task2.
+                 * Como usamos wrappers, já fizemos led_unlock() acima para o set,
+                 * mas a semântica original sinalizava aqui. Para manter compatibilidade
+                 * com o seu exemplo original (Task1 dá semáforo somente após set),
+                 * vamos dar o give aqui apenas no caso de semaphore mode. */
+                /* Note: se você preferir usar led_unlock() apenas como proteção mutua
+                 * (no mutex case), remova este bloco e ajuste tasks conforme necessário. */
+                (void)xSemaphoreGive( (SemaphoreHandle_t) ( &ledSema ) ); /* NÃO usado se USE_MUTEX definido */
+#endif
+                break;
+
+            case STATE_RED_OFF:
+                led_lock();
+                ledrgb_clearRedLed();
+                led_unlock();
+
+                vTaskDelay(pdMS_TO_TICKS(500));
+                currentState = STATE_RED_ON;
+                break;
+
+            default:
+                currentState = STATE_RED_ON;
+                break;
+        }
+#ifdef PEX_USE_RTOS
+    }
+#endif
+}
+
+/* --- Task2 ---
+ * Padrão do seu exemplo: espera semáforo (ou obtém mutex para usar HAL)
+ */
+void Task2_task(os_task_param_t task_init_data)
+{
+    typedef enum { STATE_GREEN_ON, STATE_GREEN_OFF } fsm2_state_t;
+    fsm2_state_t currentState = STATE_GREEN_ON;
+
+    ledrgb_init();
+
+#ifdef PEX_USE_RTOS
+    while (1) {
+#endif
+#ifndef USE_MUTEX
+        /* Semáforo mode: bloqueia até receber sinal */
+        if (xSemaphoreTake(ledSema, portMAX_DELAY) == pdTRUE) {
+            /* pisca verde um ciclo */
+            switch (currentState) {
+                case STATE_GREEN_ON:
+                    ledrgb_setGreenLed();
+                    vTaskDelay(pdMS_TO_TICKS(300));
+                    currentState = STATE_GREEN_OFF;
+                    break;
+                case STATE_GREEN_OFF:
+                    ledrgb_clearGreenLed();
+                    vTaskDelay(pdMS_TO_TICKS(300));
+                    currentState = STATE_GREEN_ON;
+                    break;
+                default:
+                    currentState = STATE_GREEN_ON;
+                    break;
+            }
+        } else {
+            /* não esperado */
+        }
+#else
+        /* Mutex mode: apenas proteja as operações no HAL */
+        switch (currentState) {
+            case STATE_GREEN_ON:
+                led_lock();
+                ledrgb_setGreenLed();
+                led_unlock();
+
+                vTaskDelay(pdMS_TO_TICKS(300));
+                currentState = STATE_GREEN_OFF;
+                break;
+
+            case STATE_GREEN_OFF:
+                led_lock();
+                ledrgb_clearGreenLed();
+                led_unlock();
+
+                vTaskDelay(pdMS_TO_TICKS(300));
+                currentState = STATE_GREEN_ON;
+                break;
+
+            default:
+                currentState = STATE_GREEN_ON;
+                break;
+        }
+#endif
+
+#ifdef PEX_USE_RTOS
+    }
+#endif
+}

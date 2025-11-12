@@ -1,0 +1,52 @@
+/* main.c - adapted to OSA mutex (use mutex_t as defined in fsl_os_abstraction.h) */
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+#include "semphr.h"
+#include "clockMan1.h"
+#include "pin_init.h"
+#include "osa1.h"
+#include "osa1.h"              /* keep this if required by Processor Expert */
+#include "fsl_os_abstraction.h"/* ensures mutex_t and OSA_ prototypes are visible */
+#include "free_rtos.h"
+#include "gpio1.h"
+#include "Task1.h"
+#include "Task2.h"
+#include "DbgCs1.h"
+#include "fsl_debug_console.h"
+
+#if CPU_INIT_CONFIG
+#include "Init_Config.h"
+#endif
+
+/* Global: OSA mutex for LED HAL (type from fsl_os_abstraction.h) */
+mutex_t ledMutex; /* IMPORTANT: use the typedef that exists in your header */
+
+int main(void) {
+	PE_low_level_init();
+
+#ifdef BOARD_DEBUG_UART_BASEADDR
+	(void)DbgConsole_Init(BOARD_DEBUG_UART_BASEADDR,
+			BOARD_DEBUG_UART_BAUDRATE,
+			DEBUG_CONSOLE_DEVICE_TYPE_UART,
+			BOARD_DEBUG_UART_CLK_FREQ);
+#endif
+
+	/* Create OSA mutex BEFORE RTOS start */
+	if (OSA_MutexCreate(&ledMutex) != kStatus_OSA_Success) {
+		/* critical failure allocating mutex */
+		for (;;) { /* trap for debug */
+		}
+	}
+
+	/* Continue normal startup (RTOS start) */
+#ifdef PEX_RTOS_START
+	PEX_RTOS_START();
+#endif
+
+	for (;;) {
+	}
+
+	return 0;
+}

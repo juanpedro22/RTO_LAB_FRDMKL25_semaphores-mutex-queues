@@ -1,0 +1,41 @@
+/* sync_hal.c
+ * Implementação das funções de sincronização.
+ * Deve ser compilado junto com o projeto (adicionar ao Sources).
+ */
+
+#include "sync_hal.h"
+
+#ifdef USE_MUTEX
+
+/* Mutex (OSA) mode */
+mutex_t ledMutex; /* instância definida aqui */
+
+void led_lock(void)
+{
+    /* bloqueia até obter o mutex */
+    (void)OSA_MutexLock(&ledMutex, OSA_WAIT_FOREVER);
+}
+
+void led_unlock(void)
+{
+    (void)OSA_MutexUnlock(&ledMutex);
+}
+
+#else
+
+/* Semaphore mode (binary semaphore) */
+SemaphoreHandle_t ledSema = NULL; /* instância definida aqui */
+
+void led_signal(void)
+{
+    /* dá semáforo (não verificamos retorno por simplicidade) */
+    (void)xSemaphoreGive(ledSema);
+}
+
+void led_wait(void)
+{
+    /* espera indefinidamente por sinal */
+    (void)xSemaphoreTake(ledSema, portMAX_DELAY);
+}
+
+#endif /* USE_MUTEX */

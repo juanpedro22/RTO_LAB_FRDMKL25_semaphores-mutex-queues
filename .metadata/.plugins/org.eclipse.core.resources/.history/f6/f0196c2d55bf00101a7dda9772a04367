@@ -1,0 +1,114 @@
+/* main.c - integrado (semáforo binário ou mutex OSA dependendo de USE_MUTEX) */
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+#include "clockMan1.h"
+#include "pin_init.h"
+#include "osa1.h"
+#include "free_rtos.h"
+#include "gpio1.h"
+#include "Task1.h"
+#include "Task2.h"
+#include "DbgCs1.h"
+#include "fsl_debug_console.h"
+
+#if CPU_INIT_CONFIG
+  #include "Init_Config.h"
+#endif
+
+/* Escolha de sincronização:
+ * - Defina USE_MUTEX (no Project > C Compiler > Other flags ou -DUSE_MUTEX)
+ *   para usar mutex OSA (mutex_t).
+ * - Caso contrário (padrão) usa semáforo binário do FreeRTOS.
+ */
+#ifdef USE_MUTEX
+  #include "fsl_os_abstraction.h" /* para mutex_t, OSA_MutexCreate, OSA_MutexLock, OSA_MutexUnlock */
+#else
+  #include "semphr.h"
+#endif
+
+/* Declaração global única, visível em os_tasks.c via 'extern' */
+#ifdef USE_MUTEX
+  /* mutex_t declarado conforme fsl_os_abstraction.h */
+  mutex_t ledMutex;
+#else
+  SemaphoreHandle_t ledSema = NULL;
+#endif
+
+/* Implementação dos wrappers de lock/unlock usados pelas tasks */
+#ifdef USE_MUTEX
+
+/* Mutex-based wrappers */
+static inline void led_lock(void)
+{
+    (void)OSA_MutexLock(&ledMutex, OSA_WAIT_FOREVER);
+}
+static inline void led_unlock(void)
+{
+    (void)OSA_MutexUnlock(&ledMutex);
+}
+
+#else
+
+/* Semaphore-based wrappers: usamos um semáforo binário; led_lock() toma (consume)
+ * led_unlock() libera (give). Para preservar a semântica original do seu exemplo:
+ * - Task1 faz give (led_unlock()) quando quer sinalizar Task2
+ * - Task2 faz take (led_lock()) para aguardar sinal
+ *
+ * Porém, para compatibilidade com as tasks que usam pattern lock/unlock
+ * (led_mutex_lock/led_mutex_unlock), vamos providenciar wrappers simples:
+ * - led_lock()  -> xSemaphoreTake(ledSema, portMAX_DELAY)
+ * - led_unlock()-> xSemaphoreGive(ledSema)
+ *
+ * OBS: se quiser que behavior fique exatamente como o exemplo original
+ * (Task1 dá semáforo e Task2 espera indefinidamente), simplesmente
+ * use led_unlock() onde quiser sinalizar e led_lock() onde quiser bloquear.
+ */
+static inline void led_lock(void)
+{
+    (void)xSemaphoreTake(ledSema, portMAX_DELAY);
+}
+static inline void led_unlock(void)
+{
+    (void)xSemaphoreGive(ledSema);
+}
+
+#endif /* USE_MUTEX */
+
+
+int main(void)
+{
+    PE_low_level_init();
+
+#ifdef BOARD_DEBUG_UART_BASEADDR
+    (void)DbgConsole_Init(BOARD_DEBUG_UART_BASEADDR,
+                         BOARD_DEBUG_UART_BAUDRATE,
+                         DEBUG_CONSOLE_DEVICE_TYPE_UART,
+                         BOARD_DEBUG_UART_CLK_FREQ);
+#endif
+
+    /* Criação do objeto de sincronização antes do RTOS iniciar */
+#ifdef USE_MUTEX
+    if (OSA_MutexCreate(&ledMutex) != kStatus_OSA_Success) {
+        /* falha crítica */
+        for(;;) { /* trap */ }
+    }
+#else
+    ledSema = xSemaphoreCreateBinary();
+    if (ledSema == NULL) {
+        for(;;) { /* trap */ }
+    }
+    /* Muitas implementações retornam semáforo já "dado" — se quiser inicial = 0:
+       (void)xSemaphoreTake(ledSema, (TickType_t)0);
+    */
+#endif
+
+    /* Startup do RTOS (Processor Expert) */
+#ifdef PEX_RTOS_START
+    PEX_RTOS_START();
+#endif
+
+    for(;;) { } /* main não executa código adicional */
+    return 0;
+}

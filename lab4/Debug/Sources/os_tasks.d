@@ -55,7 +55,7 @@ Sources/os_tasks.o: ../Sources/os_tasks.c \
  C:/Users/juan_/OneDrive/Documentos/Mestrado/Software\ Real\ Time/lab\ 4\ e\ 5/lab4/Generated_Code/DbgCs1.h \
  ../Sources/os_tasks.h \
  C:/Users/juan_/OneDrive/Documentos/Mestrado/Software\ Real\ Time/lab\ 4\ e\ 5/lab4/SDK/rtos/FreeRTOS/include/task.h \
- ../Sources/ledrgb_hal.h
+ ../Sources/ledrgb_hal.h ../Sources/sync_hal.h
 
 C:/Users/juan_/OneDrive/Documentos/Mestrado/Software\ Real\ Time/lab\ 4\ e\ 5/lab4/Generated_Code/Cpu.h:
 
@@ -170,3 +170,5 @@ C:/Users/juan_/OneDrive/Documentos/Mestrado/Software\ Real\ Time/lab\ 4\ e\ 5/la
 C:/Users/juan_/OneDrive/Documentos/Mestrado/Software\ Real\ Time/lab\ 4\ e\ 5/lab4/SDK/rtos/FreeRTOS/include/task.h:
 
 ../Sources/ledrgb_hal.h:
+
+../Sources/sync_hal.h:

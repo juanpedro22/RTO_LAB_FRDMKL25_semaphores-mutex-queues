@@ -1,0 +1,188 @@
+/* os_tasks.c - OSA mutex + OSA message queue (no orange overlap)
+ * Uses a busy-wait delayMS_busy(ms) that occupies CPU (does not call vTaskDelay).
+ *
+ * Important:
+ *  - Busy-wait keeps the task active and consuming CPU cycles.
+ *  - It still can be preempted by higher-priority tasks (normal preemption).
+ *  - Do NOT use busy-wait in production unless you have a very specific need.
+ */
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+
+#include "FreeRTOS.h"
+#include "task.h"
+
+#include "ledrgb_hal.h"
+#include "fsl_debug_console.h"
+#include "fsl_os_abstraction.h" /* OSA_MsgQPut / OSA_MsgQGet / types */
+
+#ifndef pdMS_TO_TICKS
+#define pdMS_TO_TICKS(ms) ((TickType_t)((((TickType_t)(ms) * (TickType_t)configTICK_RATE_HZ) + 500u) / 1000u))
+#endif
+
+/* externs from main.c (must match names used there) */
+extern mutex_t ledMutex;
+extern msg_queue_t *ledQueue; /* declared with MSG_QUEUE_DECLARE(ledQueue, ...) in main.c */
+
+/* small wrappers for readability */
+static inline void led_mutex_lock(void)
+{
+    (void)OSA_MutexLock(&ledMutex, OSA_WAIT_FOREVER);
+}
+static inline void led_mutex_unlock(void)
+{
+    (void)OSA_MutexUnlock(&ledMutex);
+}
+
+/* Message codes (must match main.c) */
+#define MSG_BLINK_GREEN   (1U)
+#define MSG_NOOP          (0U)
+
+/* ---------------- Busy-wait delay implementation ----------------
+ * This busy-wait uses the FreeRTOS tick counter. It spins until
+ * the required number of OS ticks has elapsed.
+ *
+ * Characteristics:
+ *  - Occupies CPU (spins with NOP).
+ *  - Task remains runnable; it can still be preempted by higher-priority tasks.
+ *  - Resolution is one OS tick (configTICK_RATE_HZ). For sub-tick busy-waiting
+ *    you'd need a cycle counter (DWT) or hardware timer.
+ */
+static void delayMS_busy(uint32_t ms)
+{
+    if (ms == 0U) return;
+
+    TickType_t start = xTaskGetTickCount();
+    TickType_t wait = pdMS_TO_TICKS(ms);
+    /* Ensure at least one tick if ms > 0 but pdMS_TO_TICKS returned 0 */
+    if (wait == 0U) wait = 1U;
+
+    while ((xTaskGetTickCount() - start) < wait) {
+        /* spin — keep CPU busy, but allow preemption by higher-priority ISRs/tasks */
+        __asm volatile("nop");
+    }
+}
+
+/* ---------------- End busy-wait helper ---------------- */
+
+/* Task1:
+ * - Turn RED ON for 500 ms
+ * - Clear RED
+ * - THEN put a message asking Task2 to blink GREEN (this order prevents overlap)
+ * - Wait OFF period 500 ms
+ */
+void Task1_task(os_task_param_t task_init_data)
+{
+    typedef enum { STATE_RED_ON, STATE_RED_OFF } fsm1_state_t;
+    fsm1_state_t currentState = STATE_RED_ON;
+
+    ledrgb_init();
+
+#ifdef PEX_USE_RTOS
+    while (1) {
+#endif
+        switch (currentState) {
+            case STATE_RED_ON:
+                /* Briefly protect HAL write */
+                led_mutex_lock();
+                ledrgb_setRedLed();
+                led_mutex_unlock();
+
+                /* Busy-wait ON for 500 ms (occupies CPU) */
+                delayMS_busy(500);
+
+                /* Now CLEAR the RED (protected) BEFORE signaling Task2 */
+                led_mutex_lock();
+                ledrgb_clearRedLed();
+                led_mutex_unlock();
+
+                /* Only after red has been cleared, notify Task2 via msg queue */
+                {
+                    uint32_t msg = MSG_BLINK_GREEN;
+                    osa_status_t st = OSA_MsgQPut(ledQueue, (void *)&msg);
+                    (void)st; /* production: check return and handle errors */
+                }
+
+                /* Transition to RED_OFF state and perform OFF delay (busy) */
+                currentState = STATE_RED_OFF;
+                break;
+
+            case STATE_RED_OFF:
+                /* OFF period: busy-wait 500 ms */
+                delayMS_busy(500);
+                currentState = STATE_RED_ON;
+                break;
+
+            default:
+                currentState = STATE_RED_ON;
+                break;
+        }
+#ifdef PEX_USE_RTOS
+    }
+#endif
+}
+
+/* Task2:
+ * - Block on message queue
+ * - When a MSG_BLINK_GREEN is received, perform green blink cycle (300 ms ON / 300 ms OFF)
+ * - Then go back to waiting
+ */
+void Task2_task(os_task_param_t task_init_data)
+{
+    typedef enum { STATE_WAIT_MSG, STATE_GREEN_ON, STATE_GREEN_OFF } fsm2_state_t;
+    fsm2_state_t currentState = STATE_WAIT_MSG;
+    uint32_t received_msg = MSG_NOOP;
+    osa_status_t st;
+
+    ledrgb_init();
+
+#ifdef PEX_USE_RTOS
+    while (1) {
+#endif
+        switch (currentState) {
+
+            case STATE_WAIT_MSG:
+                /* Block indefinitely waiting for a message (this releases CPU) */
+                st = OSA_MsgQGet(ledQueue, (void *)&received_msg, OSA_WAIT_FOREVER);
+                if (st == kStatus_OSA_Success) {
+                    if (received_msg == MSG_BLINK_GREEN) {
+                        currentState = STATE_GREEN_ON;
+                    } else {
+                        currentState = STATE_WAIT_MSG;
+                    }
+                } else {
+                    currentState = STATE_WAIT_MSG;
+                }
+                break;
+
+            case STATE_GREEN_ON:
+                led_mutex_lock();
+                ledrgb_setGreenLed();
+                led_mutex_unlock();
+
+                /* Busy-wait 300 ms while green is ON */
+                delayMS_busy(300);
+                currentState = STATE_GREEN_OFF;
+                break;
+
+            case STATE_GREEN_OFF:
+                led_mutex_lock();
+                ledrgb_clearGreenLed();
+                led_mutex_unlock();
+
+                /* Busy-wait 300 ms OFF */
+                delayMS_busy(300);
+
+                currentState = STATE_WAIT_MSG;
+                break;
+
+            default:
+                currentState = STATE_WAIT_MSG;
+                break;
+        }
+#ifdef PEX_USE_RTOS
+    }
+#endif
+}

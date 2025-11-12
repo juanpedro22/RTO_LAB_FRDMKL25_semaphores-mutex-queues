@@ -1,0 +1,26 @@
+/* sync_hal.h
+ * Wrapper para sincronização de acesso ao LED HAL.
+ *
+ * Define a API compartilhada para dois modos:
+ * - Semáforo binário (padrão): led_signal() / led_wait()
+ * - Mutex OSA (defina USE_MUTEX): led_lock() / led_unlock()
+ *
+ * Inclua este header em main.c e em os_tasks.c
+ */
+
+#ifndef SYNC_HAL_H
+#define SYNC_HAL_H
+
+#ifdef USE_MUTEX
+  #include "fsl_os_abstraction.h" /* mutex_t, OSA prototypes */
+  extern mutex_t ledMutex;
+  void led_lock(void);
+  void led_unlock(void);
+#else
+  #include "semphr.h"
+  extern SemaphoreHandle_t ledSema;
+  void led_signal(void); /* Task1 -> sinaliza Task2 */
+  void led_wait(void);   /* Task2 -> espera semáforo */
+#endif /* USE_MUTEX */
+
+#endif /* SYNC_HAL_H */

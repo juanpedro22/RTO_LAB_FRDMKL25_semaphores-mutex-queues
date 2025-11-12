@@ -1,38 +1,32 @@
-/* os_tasks.c - com DbgConsole_Printf para timestamps */
+/* os_tasks.c - Tarefas integradas para os dois modos
+ *
+ * Substitua o os_tasks.c antigo por este.
+ */
 
 #include "Cpu.h"
 #include "Events.h"
 #include "os_tasks.h"
 
-/* FreeRTOS headers */
 #include "FreeRTOS.h"
 #include "task.h"
-#include "semphr.h"
 
-/* HAL for LEDs */
 #include "ledrgb_hal.h"
-
-/* Debug console */
 #include "fsl_debug_console.h"
 
-/* Fallback pdMS_TO_TICKS se não definido */
+#include "sync_hal.h" /* API de sincronização unificada */
+
+/* Fallback pdMS_TO_TICKS se não existir */
 #ifndef pdMS_TO_TICKS
 #define pdMS_TO_TICKS(ms) ((TickType_t)((((TickType_t)(ms) * (TickType_t)configTICK_RATE_HZ) + 500u) / 1000u))
 #endif
 
-/* Semáforo definido em main.c */
-extern SemaphoreHandle_t ledSema;
-
-/*
- * Task1: pisca LED vermelho e dá semáforo para Task2, com log
+/* ---------------- Task1 ----------------
+ * Modo semáforo: acende vermelho e sinaliza Task2 (led_signal).
+ * Modo mutex: protege acesso ao HAL com led_lock/led_unlock.
  */
 void Task1_task(os_task_param_t task_init_data)
 {
-    typedef enum {
-        STATE_RED_ON,
-        STATE_RED_OFF
-    } fsm1_state_t;
-
+    typedef enum { STATE_RED_ON, STATE_RED_OFF } fsm1_state_t;
     fsm1_state_t currentState = STATE_RED_ON;
 
     /* Inicializa hardware (idempotente) */
@@ -43,18 +37,30 @@ void Task1_task(os_task_param_t task_init_data)
 #endif
         switch (currentState) {
             case STATE_RED_ON:
+#ifdef USE_MUTEX
+                /* Mutex: proteger operações no HAL */
+                led_lock();
                 ledrgb_setRedLed();
-
                 vTaskDelay(pdMS_TO_TICKS(500));
+                led_unlock();
+#else
+                /* Semáforo: set e depois signal (comportamento original) */
+                ledrgb_setRedLed();
+                vTaskDelay(pdMS_TO_TICKS(500));
+                led_signal(); /* sinaliza Task2 */
+#endif
 
-                /* Transição e sinalização */
                 currentState = STATE_RED_OFF;
-                (void)xSemaphoreGive(ledSema);
                 break;
 
             case STATE_RED_OFF:
+#ifdef USE_MUTEX
+                led_lock();
                 ledrgb_clearRedLed();
-
+                led_unlock();
+#else
+                ledrgb_clearRedLed();
+#endif
                 vTaskDelay(pdMS_TO_TICKS(500));
                 currentState = STATE_RED_ON;
                 break;
@@ -68,47 +74,70 @@ void Task1_task(os_task_param_t task_init_data)
 #endif
 }
 
-/*
- * Task2: espera semáforo e pisca LED verde por um ciclo, com log
+/* ---------------- Task2 ----------------
+ * Modo semáforo: espera led_wait() e então pisca verde um ciclo.
+ * Modo mutex: apenas protege operações no HAL.
  */
 void Task2_task(os_task_param_t task_init_data)
 {
-    typedef enum {
-        STATE_GREEN_ON,
-        STATE_GREEN_OFF
-    } fsm2_state_t;
-
+    typedef enum { STATE_GREEN_ON, STATE_GREEN_OFF } fsm2_state_t;
     fsm2_state_t currentState = STATE_GREEN_ON;
 
-    /* Inicializa hardware (idempotente) */
     ledrgb_init();
 
 #ifdef PEX_USE_RTOS
     while (1) {
 #endif
-        /* Bloqueia até receber sinal de Task1 */
-        if (xSemaphoreTake(ledSema, portMAX_DELAY) == pdTRUE) {
-            switch (currentState) {
-                case STATE_GREEN_ON:
-                    ledrgb_setGreenLed();
-                    vTaskDelay(pdMS_TO_TICKS(300));
-                    currentState = STATE_GREEN_OFF;
-                    break;
 
-                case STATE_GREEN_OFF:
-                    ledrgb_clearGreenLed();
-                    vTaskDelay(pdMS_TO_TICKS(300));
-                    currentState = STATE_GREEN_ON;
-                    break;
+#ifndef USE_MUTEX
+        /* Semáforo: bloqueia até receber sinal de Task1 */
+        led_wait();
+        /* agora realiza o ciclo verde */
+        switch (currentState) {
+            case STATE_GREEN_ON:
+                ledrgb_setGreenLed();
+                vTaskDelay(pdMS_TO_TICKS(300));
+                currentState = STATE_GREEN_OFF;
+                break;
 
-                default:
-                    currentState = STATE_GREEN_ON;
-                    break;
-            }
-            /* Não repostamos aqui; Task1 controla os posts. */
-        } else {
-            /* Não esperado com portMAX_DELAY */
+            case STATE_GREEN_OFF:
+                ledrgb_clearGreenLed();
+                vTaskDelay(pdMS_TO_TICKS(300));
+                currentState = STATE_GREEN_ON;
+                break;
+
+            default:
+                currentState = STATE_GREEN_ON;
+                break;
         }
+#else
+        /* Mutex: proteger operações no HAL (não há sinalização/espera entre tasks) */
+        switch (currentState) {
+            case STATE_GREEN_ON:
+                led_lock();
+                ledrgb_setGreenLed();
+                /*led_unlock();*/
+
+                vTaskDelay(pdMS_TO_TICKS(300));
+                led_unlock();
+                currentState = STATE_GREEN_OFF;
+                break;
+
+            case STATE_GREEN_OFF:
+                led_lock();
+                ledrgb_clearGreenLed();
+                led_unlock();
+
+                vTaskDelay(pdMS_TO_TICKS(300));
+                currentState = STATE_GREEN_ON;
+                break;
+
+            default:
+                currentState = STATE_GREEN_ON;
+                break;
+        }
+#endif /* USE_MUTEX */
+
 #ifdef PEX_USE_RTOS
     }
 #endif

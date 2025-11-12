@@ -53,7 +53,7 @@ Sources/main.o: ../Sources/main.c \
  C:/Users/juan_/OneDrive/Documentos/Mestrado/Software\ Real\ Time/lab\ 4\ e\ 5/lab4/Generated_Code/Task1.h \
  C:/Users/juan_/OneDrive/Documentos/Mestrado/Software\ Real\ Time/lab\ 4\ e\ 5/lab4/Generated_Code/Task2.h \
  C:/Users/juan_/OneDrive/Documentos/Mestrado/Software\ Real\ Time/lab\ 4\ e\ 5/lab4/Generated_Code/DbgCs1.h \
- ../Sources/os_tasks.h
+ ../Sources/os_tasks.h ../Sources/sync_hal.h
 
 C:/Users/juan_/OneDrive/Documentos/Mestrado/Software\ Real\ Time/lab\ 4\ e\ 5/lab4/Generated_Code/Cpu.h:
 
@@ -164,3 +164,5 @@ C:/Users/juan_/OneDrive/Documentos/Mestrado/Software\ Real\ Time/lab\ 4\ e\ 5/la
 C:/Users/juan_/OneDrive/Documentos/Mestrado/Software\ Real\ Time/lab\ 4\ e\ 5/lab4/Generated_Code/DbgCs1.h:
 
 ../Sources/os_tasks.h:
+
+../Sources/sync_hal.h:

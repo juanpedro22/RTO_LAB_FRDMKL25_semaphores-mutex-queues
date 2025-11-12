@@ -1,0 +1,69 @@
+/* main.c - adapted to OSA mutex + OSA message queue (ledQueue) */
+
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+#include "clockMan1.h"
+#include "pin_init.h"
+#include "osa1.h"
+#include "osa1.h"               /* Processor Expert glue (if present) */
+#include "fsl_os_abstraction.h"/* OSA types and prototypes */
+#include "free_rtos.h"
+#include "gpio1.h"
+#include "Task1.h"
+#include "Task2.h"
+#include "DbgCs1.h"
+#include "fsl_debug_console.h"
+
+#if CPU_INIT_CONFIG
+  #include "Init_Config.h"
+#endif
+
+/* ---------- Global OSA objects ---------- */
+
+/* Global: OSA mutex for LED HAL (type from fsl_os_abstraction.h) */
+mutex_t ledMutex; /* created with OSA_MutexCreate() */
+
+/* Declare a message queue handle using OSA macro:
+   - name: ledQueue
+   - number: maximum messages in queue (choose 4)
+   - size: size in words (1 word = 4 bytes) -> uint32_t => 1
+*/
+MSG_QUEUE_DECLARE(ledQueue, 4, 1); /* expands to msg_queue_t *ledQueue = NULL; */
+
+/* Message codes (uint32_t) */
+#define MSG_BLINK_GREEN   (1U)  /* Task1 requests Task2 to do one green blink cycle */
+#define MSG_NOOP          (0U)
+
+int main(void)
+{
+  PE_low_level_init();
+
+#ifdef BOARD_DEBUG_UART_BASEADDR
+  (void)DbgConsole_Init(BOARD_DEBUG_UART_BASEADDR,
+                       BOARD_DEBUG_UART_BAUDRATE,
+                       DEBUG_CONSOLE_DEVICE_TYPE_UART,
+                       BOARD_DEBUG_UART_CLK_FREQ);
+#endif
+
+  /* Create OSA mutex BEFORE RTOS start */
+  if (OSA_MutexCreate(&ledMutex) != kStatus_OSA_Success) {
+      for(;;) { /* critical failure allocating mutex */ }
+  }
+
+  /* Create OSA message queue BEFORE RTOS start
+     Parameters: (queueHandle, numberMessages, sizeInWords)
+     number = 4 messages, size = 1 word (uint32_t)
+  */
+  if (OSA_MsgQCreate(ledQueue, 4U, 1U) != kStatus_OSA_Success) {
+      for(;;) { /* critical failure allocating msg queue */ }
+  }
+
+  /* Start RTOS (Processor Expert) */
+#ifdef PEX_RTOS_START
+  PEX_RTOS_START();
+#endif
+
+  for(;;) { }
+  return 0;
+}

@@ -1,0 +1,69 @@
+@startuml mutex_activity_sysml
+title LAB-4 — Mutex (long lock): Task1 and Task2 — Current Implementation
+
+start
+:Initialize hardware (PE_low_level_init, ledrgb_init);
+
+while (system running?) is (yes)
+
+  fork
+    partition "Task1" {
+      :Task1 STATE = RED_ON;
+      note right
+        Action sequence:
+        1) OSA_MutexLock(&ledMutex)
+        2) ledrgb_setRedLed()
+        3) vTaskDelay(500) ← keeps RED ON for 500 ms
+        4) OSA_MutexUnlock(&ledMutex)
+        *The mutex is held during the entire ON period (including delay).*
+        *Task2 cannot access the HAL while RED is ON.*
+      end note
+
+      :Task1 STATE = RED_OFF;
+      note right
+        Action sequence:
+        1) OSA_MutexLock(&ledMutex)
+        2) ledrgb_clearRedLed()
+        3) vTaskDelay(500) ← keeps RED OFF for 500 ms
+        4) OSA_MutexUnlock(&ledMutex)
+        *Starts next cycle after OFF delay.*
+      end note
+    }
+  fork again
+    partition "Task2" {
+      :Task2 STATE = GREEN_ON;
+      note right
+        Action sequence:
+        1) OSA_MutexLock(&ledMutex)
+        2) ledrgb_setGreenLed()
+        3) vTaskDelay(300) ← keeps GREEN ON for 300 ms
+        4) OSA_MutexUnlock(&ledMutex)
+        *Task2 acquires the mutex only after Task1 releases it.*
+      end note
+
+      :Task2 STATE = GREEN_OFF;
+      note right
+        Action sequence:
+        1) OSA_MutexLock(&ledMutex)
+        2) ledrgb_clearGreenLed()
+        3) vTaskDelay(300) ← keeps GREEN OFF for 300 ms
+        4) OSA_MutexUnlock(&ledMutex)
+      end note
+    }
+  end fork
+
+  partition "Emergent Observation" {
+    note right
+      In each cycle:
+      - Task1 holds the mutex for the entire RED ON period (500 ms).
+      - Task2 remains blocked until Task1 releases the mutex.
+      - No overlap occurs — RED and GREEN are never ON simultaneously.
+      Result: **serialized and deterministic** LED behavior.
+      *The mutex enforces full mutual exclusion, not task synchronization.*
+    end note
+  }
+
+endwhile
+
+stop
+@enduml

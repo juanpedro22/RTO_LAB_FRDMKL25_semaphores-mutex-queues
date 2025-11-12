@@ -8,21 +8,24 @@ C_SRCS += \
 ../Sources/dbgwrap.c \
 ../Sources/ledrgb_hal.c \
 ../Sources/main.c \
-../Sources/os_tasks.c 
+../Sources/os_tasks.c \
+../Sources/sync_hal.c 
 
 OBJS += \
 ./Sources/Events.o \
 ./Sources/dbgwrap.o \
 ./Sources/ledrgb_hal.o \
 ./Sources/main.o \
-./Sources/os_tasks.o 
+./Sources/os_tasks.o \
+./Sources/sync_hal.o 
 
 C_DEPS += \
 ./Sources/Events.d \
 ./Sources/dbgwrap.d \
 ./Sources/ledrgb_hal.d \
 ./Sources/main.d \
-./Sources/os_tasks.d 
+./Sources/os_tasks.d \
+./Sources/sync_hal.d 
 
 
 # Each subdirectory must supply rules for building sources it contributes

@@ -1,0 +1,63 @@
+/* main.c - integrado (semáforo binário ou mutex OSA dependendo de USE_MUTEX)
+ *
+ * Gere apenas UM main.c no projeto — substitua os antigos.
+ */
+#define USE_MUTEX
+#include "Cpu.h"
+#include "Events.h"
+#include "os_tasks.h"
+#include "clockMan1.h"
+#include "pin_init.h"
+#include "osa1.h"
+#include "free_rtos.h"
+#include "gpio1.h"
+#include "Task1.h"
+#include "Task2.h"
+#include "DbgCs1.h"
+#include "fsl_debug_console.h"
+
+#if CPU_INIT_CONFIG
+  #include "Init_Config.h"
+#endif
+
+#include "sync_hal.h" /* cabeçalho unificado de sincronização */
+
+int main(void)
+{
+    PE_low_level_init();
+
+#ifdef BOARD_DEBUG_UART_BASEADDR
+    (void)DbgConsole_Init(BOARD_DEBUG_UART_BASEADDR,
+                         BOARD_DEBUG_UART_BAUDRATE,
+                         DEBUG_CONSOLE_DEVICE_TYPE_UART,
+                         BOARD_DEBUG_UART_CLK_FREQ);
+#endif
+
+    /* Criar objeto de sincronização antes do RTOS iniciar */
+#ifdef USE_MUTEX
+    /* Mutex OSA */
+    if (OSA_MutexCreate(&ledMutex) != kStatus_OSA_Success) {
+        /* falha crítica: bloqueia aqui para debug */
+        for(;;) { /* trap */ }
+    }
+#else
+    /* Semáforo binário FreeRTOS */
+    ledSema = xSemaphoreCreateBinary();
+    if (ledSema == NULL) {
+        /* falha crítica */
+        for(;;) { /* trap */ }
+    }
+    /* Observação: dependendo da implementação do FreeRTOS, xSemaphoreCreateBinary()
+     * pode retornar um semáforo já "dado". Se quiser inicial = 0, descomente:
+     *   (void)xSemaphoreTake(ledSema, (TickType_t)0);
+     */
+#endif /* USE_MUTEX */
+
+    /* Start do RTOS (Processor Expert) */
+#ifdef PEX_RTOS_START
+    PEX_RTOS_START();
+#endif
+
+    for(;;) { } /* main não realiza mais trabalho */
+    return 0;
+}
